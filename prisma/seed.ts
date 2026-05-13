@@ -40,16 +40,16 @@ async function main() {
 
   // ── 3. Projects ────────────────────────────────────────────────────────────
   const projects = [
-    { slug: "katura",   name: "Katura",   description: "Wholesale carbide tooling, B2B." },
-    { slug: "k99",      name: "K99",      description: "Tooling SaaS — sourcing + lifecycle." },
-    { slug: "maverick", name: "Maverick", description: "Education company — student journey." },
+    { slug: "katura",   name: "Katura",   description: "Wholesale carbide tooling, B2B.",           type: "KATURA"   as const },
+    { slug: "k99",      name: "K99",      description: "Tooling SaaS — sourcing + lifecycle.",      type: "K99"      as const },
+    { slug: "maverick", name: "Maverick", description: "Education company — student journey.",      type: "MAVERICK" as const },
   ];
 
   for (const p of projects) {
     await prisma.project.upsert({
       where:  { slug: p.slug },
       update: { name: p.name, description: p.description },
-      create: { ...p, ownerId: owner.id },
+      create: { slug: p.slug, name: p.name, description: p.description, type: p.type, ownerId: owner.id },
     });
   }
 

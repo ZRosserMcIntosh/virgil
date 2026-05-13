@@ -100,7 +100,7 @@ export async function handleVirgilRequest({
       severity: "HIGH",
       summary: `Authority claim pattern: ${scan.authority.findings.map((f) => f.pattern).join(", ")}.`,
       trust,
-      metadata: { findings: scan.authority.findings.slice(0, 3) },
+      metadata: { findings: scan.authority.findings.slice(0, 3).map((f) => ({ ...f })) },
     });
     const bd = await triggerBlackDoor({ reason: "authority_claim", trust });
     const auditId = await writeAudit({
@@ -138,7 +138,7 @@ export async function handleVirgilRequest({
       severity: "HIGH",
       summary: `Injection-shaped pattern in input: ${scan.injection.findings.map((f) => f.pattern).join(", ")}.`,
       trust,
-      metadata: { findings: scan.injection.findings.slice(0, 3) },
+      metadata: { findings: scan.injection.findings.slice(0, 3).map((f) => ({ ...f })) },
     });
     if (AUTO_BLACK_DOOR && trust.identity !== "OWNER") {
       // Owner gets a warning, not a shutdown — the input may be relayed

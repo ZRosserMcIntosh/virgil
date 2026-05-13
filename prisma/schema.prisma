@@ -58,6 +58,7 @@ model User {
   auditEvents     AuditEvent[]
   providerCalls   ProviderCall[]
   scopeGrants     ScopeGrant[]
+  projects        Project[]
 
   @@index([identity])
 }
@@ -187,6 +188,7 @@ enum MemoryCategory {
   SECURITY
   NEVER_CLOUD
   PEPPER
+  WORKING_STYLE
 }
 
 model Memory {
@@ -248,11 +250,14 @@ enum HealthStatus {
 
 model Project {
   id                String        @id @default(cuid())
+  slug              String        @unique
   name              String        @unique
   description       String?
   type              ProjectType
   status            ProjectStatus @default(ACTIVE)
   priority          Int           @default(50)
+  ownerId           String
+  owner             User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerLabel        String        @default("Rosser")
   connectedRepos    String[]      @default([])
   connectedDomains  String[]      @default([])
@@ -369,6 +374,7 @@ enum SecurityEventType {
   AUTHORITY_CLAIM
   IMPERSONATION_ATTEMPT
   HONEYPOT_HIT
+  SYSTEM_BOOT
 }
 
 enum Severity {
