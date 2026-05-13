@@ -7,7 +7,7 @@
  *   - HSM-backed master key
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 
 const ALGO = "aes-256-gcm";
 
@@ -46,8 +46,5 @@ export function decryptString(payload: string): string {
 
 /** Stable hash for fingerprints/IPs we must reference but not store raw. */
 export function hashOpaque(input: string, salt = "virgil"): string {
-  // Lazy import to keep this module light.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createHash } = require("node:crypto");
   return createHash("sha256").update(salt + ":" + input).digest("hex");
 }
