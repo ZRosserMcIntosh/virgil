@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #07090c;
+  color: #e7e5dc;
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* Subtle grid for the command-room feel. Quiet, not noisy. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  z-index: -1;
+}
+
+::selection { background: #d6a45333; }
+
+@layer components {
+  .v-card {
+    @apply rounded-md border border-ink-700 bg-ink-900/70 backdrop-blur-sm;
+  }
+  .v-card-pad {
+    @apply p-5;
+  }
+  .v-label {
+    @apply text-[11px] uppercase tracking-[0.18em] text-bone-300;
+  }
+  .v-divider {
+    @apply h-px w-full bg-ink-700;
+  }
+  .v-btn {
+    @apply inline-flex items-center gap-2 rounded border border-ink-600 bg-ink-800 px-3 py-1.5 text-sm text-bone-100 hover:bg-ink-700 transition;
+  }
+  .v-input {
+    @apply w-full rounded border border-ink-600 bg-ink-950 px-3 py-2 text-sm text-bone-50 placeholder:text-bone-400 focus:border-signal-steel focus:outline-none;
+  }
+}

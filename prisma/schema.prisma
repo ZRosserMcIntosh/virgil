@@ -1,0 +1,487 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// VIRGIL — database schema
+//
+// One owner. At most one Pepper. Everyone else is delegate, guest, stranger,
+// or adversary. The application enforces uniqueness for OWNER and PEPPER both
+// in code and via partial unique indexes added in migrations
+// (see prisma/migrations/*_singleton_indexes/migration.sql when generated).
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider      = "prisma-client-js"
+  // Vercel runs on Amazon Linux 2023 (RHEL/OpenSSL 3). Bundle that target so
+  // serverless cold-starts don't try to download engines at runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Identity ────────────────────────────────────────────────────────────────
+
+enum IdentityType {
+  OWNER       // Rosser. Exactly one. Enforced in app + partial unique index.
+  PEPPER      // The protected intimate. At most one. Same enforcement.
+  DELEGATE    // Function-scoped trusted operator.
+  GUEST       // Narrow, temporary access.
+  STRANGER    // Unknown. Default. Access denied.
+  ADVERSARY   // Known/suspected hostile. Lockdown response, evidence preserved.
+}
+
+enum PepperTrust {
+  PEPPER_BASIC
+  PEPPER_TRUSTED
+  PEPPER_HOUSEHOLD
+  PEPPER_PRIMARY
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String?
+  identity      IdentityType  @default(STRANGER)
+  pepperTrust   PepperTrust?
+  suspended     Boolean       @default(false)
+  suspendedAt   DateTime?
+  suspendReason String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  sessions        Session[]
+  trustedDevices  TrustedDevice[]
+  memories        Memory[]
+  approvals       Approval[]       @relation("ApprovalRequester")
+  securityEvents  SecurityEvent[]
+  auditEvents     AuditEvent[]
+  providerCalls   ProviderCall[]
+  scopeGrants     ScopeGrant[]
+
+  @@index([identity])
+}
+
+/// Per-user permission grants for DELEGATE / GUEST / PEPPER. OWNER ignores it.
+model ScopeGrant {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope       String   // e.g. "calendar.availability", "katura.tasks.read"
+  allowed     Boolean  @default(true)
+  reason      String?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, scope])
+  @@index([userId])
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionToken    String   @unique
+  trustedDeviceId String?
+  trustedDevice   TrustedDevice? @relation(fields: [trustedDeviceId], references: [id])
+  ipHash          String?
+  userAgent       String?
+  riskScore       Int      @default(50)
+  authLevel       Int      @default(1)
+  voiceVerified   Boolean  @default(false)
+  strongVerified  Boolean  @default(false)
+  lastVerifiedAt  DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model TrustedDevice {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  fingerprintHash String   @unique
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  trusted         Boolean  @default(false)
+  revokedAt       DateTime?
+  notes           String?
+  sessions        Session[]
+
+  @@index([userId])
+}
+
+// ── Lockdown (singleton) ────────────────────────────────────────────────────
+
+/// Single-row table. When `engaged = true`, every API path returns
+/// "Access denied." regardless of identity, except a clear-from-trusted-device
+/// flow performed by OWNER with HARD_APPROVAL. The seed creates this row;
+/// never delete it.
+model LockdownState {
+  id              String   @id @default("LOCKDOWN")
+  engaged         Boolean  @default(false)
+  reason          String?
+  engagedAt       DateTime?
+  engagedByUserId String?
+  clearedAt       DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
+// ── Denial list ─────────────────────────────────────────────────────────────
+
+enum DenialKind {
+  IP_HASH
+  DEVICE_FINGERPRINT
+  USER_AGENT_HASH
+  EMAIL
+}
+
+model DenialEntry {
+  id          String     @id @default(cuid())
+  kind        DenialKind
+  valueHash   String
+  reason      String
+  severity    Severity   @default(HIGH)
+  createdAt   DateTime   @default(now())
+  expiresAt   DateTime?  // null = permanent
+
+  @@unique([kind, valueHash])
+  @@index([expiresAt])
+}
+
+// ── Adversary scoring ───────────────────────────────────────────────────────
+
+model AdversaryScore {
+  id          String   @id @default(cuid())
+  subjectKey  String   @unique // "ip:<hash>" | "fp:<hash>" | "ua:<hash>"
+  score       Int      @default(0)
+  hits        Int      @default(0)
+  lastHitAt   DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+// ── Memory ──────────────────────────────────────────────────────────────────
+
+enum SensitivityLevel {
+  PUBLIC
+  BUSINESS_INTERNAL
+  BUSINESS_CONFIDENTIAL
+  PERSONAL_PRIVATE
+  PERSONAL_SACRED
+  SECURITY_SECRET
+  NEVER_SEND_TO_CLOUD
+}
+
+enum MemoryCategory {
+  PERMANENT_FACT
+  SESSION_CONTEXT
+  PROJECT
+  PERSON
+  BUSINESS
+  PERSONAL
+  DECISION_JOURNAL
+  CORRECTION
+  SECURITY
+  NEVER_CLOUD
+  PEPPER
+}
+
+model Memory {
+  id                String           @id @default(cuid())
+  ownerId           String
+  owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title             String
+  content           String?
+  encryptedContent  String?
+  encrypted         Boolean          @default(false)
+  summary           String?
+  category          MemoryCategory
+  sensitivity       SensitivityLevel @default(BUSINESS_INTERNAL)
+  confidence        Float            @default(0.8)
+  importance        Int              @default(50)
+  source            String?
+  cloudAllowed      Boolean          @default(false)
+  neverSendToCloud  Boolean          @default(false)
+  /// If non-null, this memory may be shown to the Pepper if their pepperTrust
+  /// meets/exceeds this floor. Owner ignores this field.
+  pepperVisibility  PepperTrust?
+  projectId         String?
+  project           Project?         @relation(fields: [projectId], references: [id])
+  personRef         String?
+  createdBy         String?
+  expiresAt         DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([ownerId])
+  @@index([category])
+  @@index([sensitivity])
+  @@index([projectId])
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+enum ProjectType {
+  KATURA
+  K99
+  MAVERICK
+  PERSONAL
+  OTHER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PLANNING
+  PAUSED
+  ARCHIVED
+}
+
+enum HealthStatus {
+  GREEN
+  YELLOW
+  RED
+  UNKNOWN
+}
+
+model Project {
+  id                String        @id @default(cuid())
+  name              String        @unique
+  description       String?
+  type              ProjectType
+  status            ProjectStatus @default(ACTIVE)
+  priority          Int           @default(50)
+  ownerLabel        String        @default("Rosser")
+  connectedRepos    String[]      @default([])
+  connectedDomains  String[]      @default([])
+  connectedAgentIds String[]      @default([])
+  healthScore       Int           @default(50)
+  health            HealthStatus  @default(UNKNOWN)
+  lastBriefingAt    DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  memories          Memory[]
+  approvals         Approval[]
+}
+
+// ── Agents ──────────────────────────────────────────────────────────────────
+
+enum AgentStatus {
+  ACTIVE
+  IDLE
+  DISABLED
+  QUARANTINED
+}
+
+model Agent {
+  id                String      @id @default(cuid())
+  name              String      @unique
+  domain            String
+  description       String
+  status            AgentStatus @default(IDLE)
+  accessLevel       Int         @default(2)
+  connectorScopes   String[]    @default([])
+  reportsTo         String?
+  lastReportAt      DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+// ── Approval Queue ──────────────────────────────────────────────────────────
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  EXECUTED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ActionPhase {
+  OBSERVE
+  ADVISE
+  PREPARE
+  STAGE
+  EXECUTE
+  CONFIRM
+  ABORT
+}
+
+model Approval {
+  id                    String           @id @default(cuid())
+  requesterId           String
+  requester             User             @relation("ApprovalRequester", fields: [requesterId], references: [id])
+  actionType            String
+  phase                 ActionPhase      @default(PREPARE)
+  title                 String
+  summary               String
+  payload               Json
+  riskLevel             RiskLevel        @default(MEDIUM)
+  sensitivityLevel      SensitivityLevel @default(BUSINESS_INTERNAL)
+  approvalRequiredLevel Int              @default(5)
+  preparedByModel       String?
+  preparedByTool        String?
+  explanation           String?
+  rollbackPlan          String?
+  status                ApprovalStatus   @default(PENDING)
+  projectId             String?
+  project               Project?         @relation(fields: [projectId], references: [id])
+  createdAt             DateTime         @default(now())
+  expiresAt             DateTime?
+  decidedAt             DateTime?
+  executedAt            DateTime?
+
+  @@index([status])
+  @@index([requesterId])
+}
+
+// ── Security Events ─────────────────────────────────────────────────────────
+
+enum SecurityEventType {
+  FAILED_LOGIN
+  UNKNOWN_DEVICE
+  SUSPICIOUS_REQUEST
+  PROMPT_INJECTION
+  UNAUTHORIZED_MEMORY_ACCESS
+  SECRETS_REQUEST
+  PRIVATE_PERSON_REQUEST
+  BROAD_EXPORT_ATTEMPT
+  CONNECTOR_ACCESS_ATTEMPT
+  FAILED_VOICE_VERIFICATION
+  SESSION_ESCALATION
+  LOCKDOWN_TRIGGERED
+  LOCKDOWN_CLEARED
+  EMERGENCY_UNLOCK
+  MANUAL_OVERRIDE
+  BLACK_DOOR_TRIGGERED
+  ADVERSARY_FLAGGED
+  DENIAL_LIST_ADDED
+  AUTHORITY_CLAIM
+  IMPERSONATION_ATTEMPT
+  HONEYPOT_HIT
+}
+
+enum Severity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model SecurityEvent {
+  id            String            @id @default(cuid())
+  userId        String?
+  user          User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type          SecurityEventType
+  severity      Severity          @default(MEDIUM)
+  ipHash        String?
+  userAgent     String?
+  summary       String
+  metadata      Json?
+  resolved      Boolean           @default(false)
+  resolvedAt    DateTime?
+  createdAt     DateTime          @default(now())
+
+  @@index([type])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+// ── Audit ───────────────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id                  String   @id @default(cuid())
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId           String?
+  trustLevel          Int?
+  identity            IdentityType?
+  sensitivity         SensitivityLevel?
+  actionRequested     String
+  actionTaken         String
+  toolUsed             String?
+  providerUsed        String?
+  modelUsed           String?
+  approvalId          String?
+  approvalRequired    Boolean  @default(false)
+  sentToCloud         Boolean  @default(false)
+  redactionApplied    Boolean  @default(false)
+  result              String   // "ok" | "denied" | "error" | "staged" | "lockdown"
+  resultDetail        String?
+  createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// ── Connectors ──────────────────────────────────────────────────────────────
+
+enum ConnectorKind {
+  GITHUB
+  GMAIL
+  GOOGLE_CALENDAR
+  KATURA
+  K99
+  MAVERICK
+  STRIPE
+  ANALYTICS
+  VERCEL
+  CLOUDFLARE
+  AWS_S3
+  AWS_KMS
+  RESEND
+  SENTRY
+  LINEAR
+  NOTION
+  SLACK
+  CUSTOM
+}
+
+model ConnectorConfig {
+  id              String        @id @default(cuid())
+  kind            ConnectorKind
+  name            String
+  enabled         Boolean       @default(false)
+  encryptedSecret String?
+  scopes          String[]      @default([])
+  metadata        Json?
+  lastSyncAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([kind, name])
+}
+
+// ── Provider Call ledger ────────────────────────────────────────────────────
+
+model ProviderCall {
+  id              String   @id @default(cuid())
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  provider        String
+  model           String
+  taskClass       String
+  promptTokens    Int      @default(0)
+  completionTokens Int     @default(0)
+  costUsd         Float    @default(0)
+  latencyMs       Int      @default(0)
+  redactionApplied Boolean @default(false)
+  sensitivity     SensitivityLevel?
+  ok              Boolean  @default(true)
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  @@index([provider])
+  @@index([createdAt])
+}
