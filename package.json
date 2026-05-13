@@ -21,6 +21,8 @@
     "@aws-sdk/client-kms": "^3.658.1",
     "@aws-sdk/client-s3": "^3.658.1",
     "@prisma/client": "^5.22.0",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
     "next": "^15.1.0",
     "next-auth": "^4.24.10",
     "react": "^19.0.0",

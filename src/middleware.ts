@@ -1,18 +1,20 @@
 /**
  * VIRGIL — Edge middleware.
  *
- * Runs before every request. Three jobs:
+ * Runs before every request. Four jobs:
  *   1. Honeypot trap — common scanner paths are 404'd and recorded.
  *   2. Security headers — strict CSP, HSTS, no framing.
  *   3. API origin check — POST to /api/* must come from this origin.
+ *   4. Supabase session refresh — keeps auth cookies valid for Server Components.
  *
- * NOTE: middleware runs on the Edge runtime. We do NOT touch Prisma here.
+ * NOTE: middleware runs on the Edge runtime. Prisma is NOT used here.
  * Honeypot hits are surfaced via response header so a server-side route
  * can persist them when Rosser is logged in.
  */
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { refreshSupabaseSession } from "@/utils/supabase/middleware";
 
 const HONEYPOT_PATHS = [
   "/admin",
@@ -44,12 +46,12 @@ const CSP =
   "style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data: blob:; " +
   "font-src 'self' data:; " +
-  "connect-src 'self'; " +
+  "connect-src 'self' https://*.supabase.co; " +
   "frame-ancestors 'none'; " +
   "base-uri 'self'; " +
   "form-action 'self'";
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname, origin } = req.nextUrl;
 
   // 1. Honeypot.
@@ -74,7 +76,9 @@ export function middleware(req: NextRequest) {
   const res = NextResponse.next();
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
   res.headers.set("Content-Security-Policy", CSP);
-  return res;
+
+  // 4. Supabase session refresh — must run last, may replace response object.
+  return refreshSupabaseSession(req, res);
 }
 
 export const config = {
