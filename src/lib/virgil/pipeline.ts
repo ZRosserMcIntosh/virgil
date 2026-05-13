@@ -28,6 +28,7 @@ import { writeAudit } from "./audit";
 import { recordSecurityEvent, triggerBlackDoor } from "./security-events";
 import { bumpAdversaryScore } from "./adversary";
 import { prisma } from "@/lib/db/client";
+import { retrieveRelevantMemories, maxSensitivity } from "./memory";
 import type { TrustContext, VirgilResponse } from "./types";
 
 export interface PipelineInput {
@@ -180,13 +181,38 @@ export async function handleVirgilRequest({
   // 10. Route.
   const route = routeModel(taskClass, privacy.classification.level, privacy.allowCloud);
 
+  // Memory retrieval (fire before prompt build; never blocks on failure).
+  let memoryContextText: string | undefined;
+  let combinedSensitivity = privacy.classification.level;
+  let cloudAllowedFinal = privacy.allowCloud;
+
+  try {
+    const memCtx = await retrieveRelevantMemories({
+      input,
+      userId: trust.userId,
+      identity: trust.identity,
+      isOwner: trust.isOwner,
+      isPepper: trust.isPepper,
+      pepperRung: trust.pepperRung,
+      maxResults: 8,
+      role: "SYSTEM_CONTEXT",
+    });
+    if (memCtx.text) memoryContextText = memCtx.text;
+    combinedSensitivity = maxSensitivity(privacy.classification.level, memCtx.sensitivityCeiling);
+    cloudAllowedFinal = privacy.allowCloud && !memCtx.requiresLocalRoute;
+  } catch {
+    // Memory retrieval is best-effort; never fail the pipeline.
+  }
+
+  const routeFinal = routeModel(taskClass, combinedSensitivity, cloudAllowedFinal);
+
   // 11. System prompt + provider call.
-  const system = buildSystemPrompt({ trust });
-  const userText = privacy.allowCloud ? privacy.redacted : input;
+  const system = buildSystemPrompt({ trust, memoryContext: memoryContextText });
+  const userText = cloudAllowedFinal ? privacy.redacted : input;
 
   const result = await callProvider({
-    provider: route.spec.provider,
-    model: route.spec.model,
+    provider: routeFinal.spec.provider,
+    model: routeFinal.spec.model,
     messages: [
       { role: "system", content: system },
       { role: "user", content: userText },
@@ -207,7 +233,7 @@ export async function handleVirgilRequest({
       latencyMs: result.latencyMs,
       costUsd: result.costUsd,
       redactionApplied: privacy.classification.requiresRedaction,
-      sensitivity: privacy.classification.level,
+      sensitivity: combinedSensitivity,
       ok: true,
     },
   });
@@ -215,7 +241,7 @@ export async function handleVirgilRequest({
   // 12. Validate and rehydrate (owner only).
   const v = validateModelOutput(result.text, privacy.classification.level);
   let finalText = v.ok ? result.text : ACCESS_DENIED_MESSAGE;
-  if (v.ok && trust.identity === "OWNER" && privacy.allowCloud && privacy.classification.requiresRedaction) {
+  if (v.ok && trust.identity === "OWNER" && cloudAllowedFinal && privacy.classification.requiresRedaction) {
     finalText = rehydrate(finalText, privacy.map);
   }
 
@@ -228,16 +254,16 @@ export async function handleVirgilRequest({
     resultDetail: v.reason,
     providerUsed: result.provider,
     modelUsed: result.model,
-    sentToCloud: privacy.allowCloud && route.spec.provider !== "local" && route.spec.provider !== "mock",
+    sentToCloud: cloudAllowedFinal && routeFinal.spec.provider !== "local" && routeFinal.spec.provider !== "mock",
     redactionApplied: privacy.classification.requiresRedaction,
-    sensitivity: privacy.classification.level,
+    sensitivity: combinedSensitivity,
   });
 
   return {
     message: finalText,
     usedTools: [],
     usedModel: `${result.provider}:${result.model}`,
-    sensitivity: privacy.classification.level,
+    sensitivity: combinedSensitivity,
     auditEventId: auditId,
   };
 }

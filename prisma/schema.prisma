@@ -191,34 +191,191 @@ enum MemoryCategory {
   WORKING_STYLE
 }
 
+enum MemoryStatus {
+  ACTIVE
+  PROPOSED
+  SUPERSEDED
+  ARCHIVED
+  DELETED
+  REJECTED
+}
+
+enum MemorySourceType {
+  USER_DIRECT
+  CHAT_SUMMARY
+  CONNECTOR
+  DOCUMENT
+  EMAIL
+  CALENDAR
+  CODE
+  ISSUE
+  PR
+  SYSTEM
+  IMPORT
+  INFERENCE
+}
+
+enum MemoryWritePolicy {
+  AUTO_SAFE
+  REQUIRE_OWNER_REVIEW
+  REQUIRE_EXPLICIT_APPROVAL
+  NEVER_WRITE
+}
+
+enum MemoryRetrievalRole {
+  SYSTEM_CONTEXT
+  USER_CONTEXT
+  BRIEFING
+  SEARCH_RESULT
+  ADMIN_REVIEW
+}
+
+enum MemoryEdgeType {
+  RELATED_TO
+  CONTRADICTS
+  SUPPORTS
+  SUPERSEDES
+  ABOUT_PERSON
+  ABOUT_PROJECT
+  CAUSED_BY
+  RESULTED_IN
+  SHOULD_REMIND_WITH
+}
+
 model Memory {
-  id                String           @id @default(cuid())
-  ownerId           String
-  owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  title             String
-  content           String?
-  encryptedContent  String?
-  encrypted         Boolean          @default(false)
-  summary           String?
-  category          MemoryCategory
-  sensitivity       SensitivityLevel @default(BUSINESS_INTERNAL)
-  confidence        Float            @default(0.8)
-  importance        Int              @default(50)
-  source            String?
-  cloudAllowed      Boolean          @default(false)
-  neverSendToCloud  Boolean          @default(false)
+  id                 String            @id @default(cuid())
+  ownerId            String
+  owner              User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title              String
+  content            String?
+  encryptedContent   String?
+  encrypted          Boolean           @default(false)
+  summary            String?
+  searchText         String?
+  category           MemoryCategory
+  sensitivity        SensitivityLevel  @default(BUSINESS_INTERNAL)
+  status             MemoryStatus      @default(ACTIVE)
+  sourceType         MemorySourceType  @default(USER_DIRECT)
+  sourceId           String?
+  sourceUrl          String?
+  sourceTimestamp    DateTime?
+  writePolicy        MemoryWritePolicy @default(REQUIRE_OWNER_REVIEW)
+  confidence         Float             @default(0.8)
+  importance         Int               @default(50)
+  source             String?
+  cloudAllowed       Boolean           @default(false)
+  neverSendToCloud   Boolean           @default(false)
+  tags               String[]          @default([])
+  pinned             Boolean           @default(false)
+  verified           Boolean           @default(false)
+  accessCount        Int               @default(0)
+  lastAccessedAt     DateTime?
+  decayAfter         DateTime?
+  supersedesMemoryId String?
+  supersededById     String?
   /// If non-null, this memory may be shown to the Pepper if their pepperTrust
   /// meets/exceeds this floor. Owner ignores this field.
-  pepperVisibility  PepperTrust?
-  projectId         String?
-  project           Project?         @relation(fields: [projectId], references: [id])
-  personRef         String?
-  createdBy         String?
-  expiresAt         DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  pepperVisibility   PepperTrust?
+  projectId          String?
+  project            Project?          @relation(fields: [projectId], references: [id])
+  personRef          String?
+  createdBy          String?
+  expiresAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  chunks             MemoryChunk[]
+  fromEdges          MemoryEdge[]      @relation("EdgeFrom")
+  toEdges            MemoryEdge[]      @relation("EdgeTo")
 
   @@index([ownerId])
+  @@index([category])
+  @@index([sensitivity])
+  @@index([projectId])
+  @@index([status])
+  @@index([sourceType])
+  @@index([importance])
+  @@index([lastAccessedAt])
+  @@index([createdAt])
+  @@index([personRef])
+  @@index([ownerId, status, category])
+}
+
+model MemoryChunk {
+  id               String   @id @default(cuid())
+  memoryId         String
+  memory           Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  ordinal          Int
+  content          String?
+  encryptedContent String?
+  encrypted        Boolean  @default(false)
+  summary          String?
+  searchText       String?
+  tokenEstimate    Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@unique([memoryId, ordinal])
+  @@index([memoryId])
+}
+
+model MemoryAccessLog {
+  id          String              @id @default(cuid())
+  memoryId    String?
+  userId      String?
+  identity    IdentityType?
+  role        MemoryRetrievalRole
+  action      String
+  allowed     Boolean
+  reason      String?
+  sensitivity SensitivityLevel?
+  projectId   String?
+  queryHash   String?
+  createdAt   DateTime            @default(now())
+
+  @@index([memoryId])
+  @@index([userId])
+  @@index([identity])
+  @@index([createdAt])
+  @@index([projectId])
+}
+
+model MemoryEdge {
+  id           String         @id @default(cuid())
+  fromMemoryId String
+  toMemoryId   String
+  fromMemory   Memory         @relation("EdgeFrom", fields: [fromMemoryId], references: [id], onDelete: Cascade)
+  toMemory     Memory         @relation("EdgeTo",   fields: [toMemoryId],   references: [id], onDelete: Cascade)
+  type         MemoryEdgeType
+  weight       Float          @default(1.0)
+  reason       String?
+  createdAt    DateTime       @default(now())
+
+  @@unique([fromMemoryId, toMemoryId, type])
+  @@index([fromMemoryId])
+  @@index([toMemoryId])
+  @@index([type])
+}
+
+model MemoryReviewQueue {
+  id               String           @id @default(cuid())
+  proposedTitle    String
+  proposedContent  String
+  proposedSummary  String?
+  category         MemoryCategory
+  sensitivity      SensitivityLevel
+  sourceType       MemorySourceType
+  sourceId         String?
+  projectId        String?
+  personRef        String?
+  confidence       Float            @default(0.7)
+  importance       Int              @default(50)
+  reason           String
+  status           ApprovalStatus   @default(PENDING)
+  createdByUserId  String?
+  decidedAt        DateTime?
+  createdAt        DateTime         @default(now())
+
+  @@index([status])
   @@index([category])
   @@index([sensitivity])
   @@index([projectId])
