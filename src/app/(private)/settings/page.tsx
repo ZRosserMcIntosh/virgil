@@ -1,53 +1,115 @@
-import { prisma } from "@/lib/db/client";
+/**
+ * VIRGIL — Settings / API Keys status page.
+ *
+ * Shows every connector in the registry with a ✅ / ❌ status indicator.
+ * Server-rendered; process.env is read at module load inside the registry.
+ */
+import {
+  CONNECTOR_REGISTRY,
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  type ConnectorDef,
+  type ConnectorCategory,
+} from "@/lib/virgil/connectors/registry";
+
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
-  const connectors = await prisma.connectorConfig.findMany({ orderBy: { kind: "asc" } });
+export default function SettingsPage() {
+  const byCategory = new Map<ConnectorCategory, ConnectorDef[]>();
+  for (const cat of CATEGORY_ORDER) byCategory.set(cat, []);
+  for (const c of CONNECTOR_REGISTRY) {
+    byCategory.get(c.category)?.push(c);
+  }
 
-  const flags = [
-    { name: "VIRGIL_LOCAL_ONLY", value: process.env.VIRGIL_LOCAL_ONLY ?? "false" },
-    { name: "VIRGIL_AUTO_BLACK_DOOR", value: process.env.VIRGIL_AUTO_BLACK_DOOR ?? "true" },
-    { name: "OPENAI_API_KEY", value: process.env.OPENAI_API_KEY ? "configured" : "missing" },
-    { name: "ANTHROPIC_API_KEY", value: process.env.ANTHROPIC_API_KEY ? "configured" : "missing" },
-    { name: "ENCRYPTION_KEY", value: process.env.ENCRYPTION_KEY ? "configured" : "missing" },
-  ];
+  const totalConfigured = CONNECTOR_REGISTRY.filter((c) => c.configured).length;
+  const totalMissing = CONNECTOR_REGISTRY.filter((c) => !c.configured).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header>
         <div className="v-label">Settings</div>
-        <h1 className="mt-1 font-serif text-3xl text-bone-50">System Configuration</h1>
+        <h1 className="mt-1 font-serif text-3xl text-bone-50">API Keys &amp; Connectors</h1>
+        <p className="mt-2 text-sm text-bone-400">
+          {totalConfigured} configured &nbsp;·&nbsp;{" "}
+          <span className="text-signal-red">{totalMissing} missing</span>
+        </p>
       </header>
 
-      <section className="v-card v-card-pad">
-        <div className="v-label mb-3">Operational Flags</div>
-        <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-          {flags.map((f) => (
-            <div key={f.name} className="flex items-center justify-between border-b border-ink-700 pb-1">
-              <span className="font-mono text-[12px] text-bone-300">{f.name}</span>
-              <span className="text-bone-100">{f.value}</span>
+      {CATEGORY_ORDER.map((cat) => {
+        const connectors = byCategory.get(cat) ?? [];
+        if (connectors.length === 0) return null;
+        const isCritical = cat === "critical";
+        return (
+          <section key={cat} className="v-card v-card-pad">
+            <div className={`v-label mb-4 ${isCritical ? "text-signal-amber" : ""}`}>
+              {CATEGORY_LABELS[cat]}
             </div>
-          ))}
-        </div>
-      </section>
+            <div className="divide-y divide-ink-700">
+              {connectors.map((c) => (
+                <ConnectorRow key={c.id} connector={c} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
 
       <section className="v-card v-card-pad">
-        <div className="v-label mb-3">Connectors</div>
-        {connectors.length === 0 ? (
-          <div className="text-sm text-bone-400">No connector configurations stored yet.</div>
-        ) : (
-          <ul className="space-y-2 text-sm">
-            {connectors.map((c) => (
-              <li key={c.id} className="flex items-center justify-between">
-                <span className="text-bone-100">{c.name} <span className="text-bone-400">({c.kind})</span></span>
-                <span className={c.enabled ? "text-signal-green" : "text-bone-400"}>
-                  {c.enabled ? "enabled" : "disabled"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div className="v-label mb-3">Virgil Policy Flags</div>
+        <div className="divide-y divide-ink-700 text-sm">
+          <FlagRow name="VIRGIL_LOCAL_ONLY" value={process.env.VIRGIL_LOCAL_ONLY ?? "false"} />
+          <FlagRow name="VIRGIL_AUTO_BLACK_DOOR" value={process.env.VIRGIL_AUTO_BLACK_DOOR ?? "true"} />
+          <FlagRow name="VIRGIL_OWNER_NAME" value={process.env.VIRGIL_OWNER_NAME ?? "(default: Rosser)"} />
+        </div>
       </section>
+    </div>
+  );
+}
+
+function ConnectorRow({ connector: c }: { connector: ConnectorDef }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3 text-sm">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-bone-100">{c.name}</span>
+          {c.docsUrl && (
+            <a
+              href={c.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-bone-500 underline underline-offset-2 hover:text-bone-300"
+            >
+              docs ↗
+            </a>
+          )}
+        </div>
+        <div className="mt-0.5 text-[12px] text-bone-400">{c.description}</div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {c.envVars.map((v) => (
+            <span
+              key={v}
+              className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] text-bone-400"
+            >
+              {v}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="shrink-0 pt-0.5">
+        {c.configured ? (
+          <span className="text-base" title="Configured">✅</span>
+        ) : (
+          <span className="text-base" title="Not configured">❌</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FlagRow({ name, value }: { name: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between py-2 text-sm">
+      <span className="font-mono text-[12px] text-bone-300">{name}</span>
+      <span className="text-bone-100">{value}</span>
     </div>
   );
 }
