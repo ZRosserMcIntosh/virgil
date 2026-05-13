@@ -17,7 +17,7 @@
  *  13.  Audit. Return.
  */
 
-import { ACCESS_DENIED_MESSAGE } from "./constitution";
+import { ACCESS_DENIED_MESSAGE, enforceAddressRules } from "./constitution";
 import { buildSystemPrompt } from "./system-prompt";
 import { decidePermission } from "./permissions";
 import { classifyAndPrepareForCloud, rehydrate, validateModelOutput } from "./privacy-gateway";
@@ -243,6 +243,11 @@ export async function handleVirgilRequest({
   let finalText = v.ok ? result.text : ACCESS_DENIED_MESSAGE;
   if (v.ok && trust.identity === "OWNER" && cloudAllowedFinal && privacy.classification.requiresRedaction) {
     finalText = rehydrate(finalText, privacy.map);
+  }
+
+  // 12b. Enforce address rules — post-process model output for formal consistency.
+  if (v.ok) {
+    finalText = enforceAddressRules(finalText, trust.identity);
   }
 
   // 13. Audit.
