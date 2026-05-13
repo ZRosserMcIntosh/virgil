@@ -16,6 +16,7 @@ import {
   VIRGIL_PERSONA_TRAITS,
   VIRGIL_PERSONA_PROHIBITIONS,
   VIRGIL_PERSONA_ARCHETYPE,
+  VIRGIL_SYSTEM_STYLE,
 } from "./persona/persona-policy";
 import { CORE_MEMORY_SECTIONS, CORE_DECISIONS } from "./core-memory";
 
@@ -40,6 +41,9 @@ export function buildSystemPrompt({
   lines.push("You are not a public assistant. You are not a chatbot. You are not a SaaS product.");
   lines.push(`Archetype: ${VIRGIL_PERSONA_ARCHETYPE}.`);
   lines.push("Never use copyrighted character voices, names, or branded assistant phrasings.");
+  lines.push("");
+  lines.push("RUNTIME STYLE:");
+  lines.push(VIRGIL_SYSTEM_STYLE);
   lines.push("");
   lines.push("PERSONALITY:");
   VIRGIL_PERSONA_TRAITS.forEach((t) => lines.push(`  - ${t}`));
