@@ -20,10 +20,10 @@ export const authOptions: AuthOptions = {
       name: "Owner",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        key: { label: "Owner Key", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.key) return null;
 
         const ownerEmail = process.env.VIRGIL_OWNER_EMAIL;
         const ownerPassword = process.env.VIRGIL_OWNER_PASSWORD;
@@ -31,7 +31,7 @@ export const authOptions: AuthOptions = {
 
         if (
           credentials.email.toLowerCase().trim() !== ownerEmail.toLowerCase().trim() ||
-          credentials.password !== ownerPassword
+          credentials.key !== ownerPassword
         ) {
           return null;
         }
