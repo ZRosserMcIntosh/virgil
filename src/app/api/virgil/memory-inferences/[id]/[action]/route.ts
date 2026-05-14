@@ -7,18 +7,18 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string; action: string } },
+  { params }: { params: Promise<{ id: string; action: string }> },
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ message: "Access denied." }, { status: 403 });
   const owner = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!owner || owner.identity !== "OWNER") return NextResponse.json({ message: "Access denied." }, { status: 403 });
 
-  const { action } = params;
+  const { action, id } = await params;
 
   if (action === "approve") {
     const inference = await prisma.virgilMemoryInference.update({
-      where: { id: params.id },
+      where: { id },
       data: { status: "APPROVED" },
     });
 
@@ -45,7 +45,7 @@ export async function POST(
     });
 
     await prisma.virgilMemoryInference.update({
-      where: { id: params.id },
+      where: { id },
       data: { status: "SAVED" },
     });
 
@@ -54,7 +54,7 @@ export async function POST(
 
   if (action === "reject") {
     await prisma.virgilMemoryInference.update({
-      where: { id: params.id },
+      where: { id },
       data: { status: "REJECTED" },
     });
     return NextResponse.json({ ok: true, action: "rejected" });
@@ -65,16 +65,17 @@ export async function POST(
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string; action: string } },
+  { params }: { params: Promise<{ id: string; action: string }> },
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ message: "Access denied." }, { status: 403 });
   const owner = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!owner || owner.identity !== "OWNER") return NextResponse.json({ message: "Access denied." }, { status: 403 });
 
+  const { id } = await params;
   const { proposedMemory } = await req.json();
   await prisma.virgilMemoryInference.update({
-    where: { id: params.id },
+    where: { id },
     data: { proposedMemory, status: "EDITED" },
   });
   return NextResponse.json({ ok: true });
