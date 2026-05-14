@@ -124,15 +124,15 @@ Answer: ${answer}`;
       if (jsonMatch) followups = JSON.parse(jsonMatch[0]);
 
       if (followups.length > 0) {
-        await (prisma as never as Record<string, never>).virgilQuestion?.createMany?.({
+        await (prisma.virgilQuestion as any).createMany({
           data: followups.slice(0, 3).map((fq) => ({
             userId: owner.id,
-            domain: fq.domain as never ?? question.domain,
+            domain: fq.domain ?? question.domain,
             question: fq.question,
             reason: fq.reason,
             priority: fq.priority ?? 5,
-            emotionalWeight: (fq.emotionalWeight ?? "LIGHT") as never,
-            timing: (fq.timing ?? "ANYTIME") as never,
+            emotionalWeight: fq.emotionalWeight ?? "LIGHT",
+            timing: fq.timing ?? "ANYTIME",
             status: "UNASKED",
             generatedBy: "VIRGIL",
           })),
@@ -162,9 +162,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const valid = ["UNASKED", "ASKED", "ANSWERED", "DEFERRED", "RETIRED"];
   if (!valid.includes(status)) return NextResponse.json({ message: "Invalid status." }, { status: 400 });
 
-  await (prisma as never as Record<string, never>).virgilQuestion?.update?.({
+  await (prisma.virgilQuestion as any).update({
     where: { id },
-    data: { status: status as never },
+    data: { status },
   });
 
   return NextResponse.json({ ok: true });
