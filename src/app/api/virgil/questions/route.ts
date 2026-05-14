@@ -73,8 +73,8 @@ export async function POST(req: Request) {
       where: {
         userId: owner.id,
         status: { in: ["UNASKED", "ASKED"] },
-        emotionalWeight: { in: rules.allowedWeights as never[] },
-        ...(selectedDomain ? { domain: selectedDomain as never } : {}),
+        emotionalWeight: { in: rules.allowedWeights as any },
+        ...(selectedDomain ? { domain: selectedDomain as any } : {}),
       },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
       take: rules.maxQuestions,
