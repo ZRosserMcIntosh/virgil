@@ -59,6 +59,11 @@ model User {
   providerCalls   ProviderCall[]
   scopeGrants     ScopeGrant[]
   projects        Project[]
+  questions       VirgilQuestion[]
+  questionAnswers VirgilQuestionAnswer[]
+  memoryInferences VirgilMemoryInference[]
+  profileDomains  VirgilProfileDomain[]
+  questionSessions VirgilQuestionSession[]
 
   @@index([identity])
 }
@@ -647,4 +652,177 @@ model ProviderCall {
 
   @@index([provider])
   @@index([createdAt])
+}
+
+// ── Personal Question Mode ───────────────────────────────────────────────────
+
+enum QuestionDomain {
+  COMMAND_STYLE
+  FAITH
+  FATHERHOOD
+  BUSINESS
+  RELATIONSHIPS
+  EMOTIONAL_PATTERNS
+  HEALTH
+  RISK
+  MONEY
+  LEGAL
+  LEGACY
+  COMMUNICATION_STYLE
+  BOUNDARIES
+  CURRENT_MISSIONS
+}
+
+enum QuestionStatus {
+  UNASKED
+  ASKED
+  ANSWERED
+  DEFERRED
+  RETIRED
+}
+
+enum EmotionalWeight {
+  LIGHT
+  MODERATE
+  HEAVY
+}
+
+enum QuestionTiming {
+  ANYTIME
+  QUIET_MOMENT
+  EXPLICIT_PERSONAL_MODE
+  ONLY_IF_RELEVANT
+}
+
+enum QuestionGeneratedBy {
+  SYSTEM
+  VIRGIL
+  MANUAL
+}
+
+enum InferenceSensitivity {
+  LOW
+  MEDIUM
+  HIGH
+  SACRED
+}
+
+enum InferenceStatus {
+  PENDING_REVIEW
+  APPROVED
+  EDITED
+  REJECTED
+  SAVED
+}
+
+enum SessionDepth {
+  LIGHT
+  STANDARD
+  DEEP
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+model VirgilQuestion {
+  id                    String              @id @default(cuid())
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domain                QuestionDomain
+  question              String
+  reason                String
+  priority              Int                 @default(5)
+  emotionalWeight       EmotionalWeight     @default(LIGHT)
+  timing                QuestionTiming      @default(ANYTIME)
+  status                QuestionStatus      @default(UNASKED)
+  generatedBy           QuestionGeneratedBy @default(SYSTEM)
+  sourceConversationId  String?
+  followups             String[]            @default([])
+  askedAt               DateTime?
+  answeredAt            DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  answers               VirgilQuestionAnswer[]
+  inferences            VirgilMemoryInference[]
+
+  @@index([userId])
+  @@index([domain])
+  @@index([status])
+  @@index([priority])
+}
+
+model VirgilQuestionAnswer {
+  id                    String   @id @default(cuid())
+  questionId            String
+  question              VirgilQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answer                String
+  userApprovedForMemory Boolean  @default(false)
+  userRejectedForMemory Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  inferences            VirgilMemoryInference[]
+
+  @@index([questionId])
+  @@index([userId])
+}
+
+model VirgilMemoryInference {
+  id              String               @id @default(cuid())
+  userId          String
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId      String?
+  question        VirgilQuestion?      @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  answerId        String?
+  answer          VirgilQuestionAnswer? @relation(fields: [answerId], references: [id], onDelete: SetNull)
+  proposedMemory  String
+  category        String
+  confidence      Float                @default(0.8)
+  sensitivity     InferenceSensitivity @default(MEDIUM)
+  inferenceReason String?
+  status          InferenceStatus      @default(PENDING_REVIEW)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([questionId])
+}
+
+model VirgilProfileDomain {
+  id                   String         @id @default(cuid())
+  userId               String
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domain               QuestionDomain
+  summary              String?
+  understandingScore   Int            @default(0)
+  confirmedMemoryCount Int            @default(0)
+  openQuestionCount    Int            @default(0)
+  lastUpdatedAt        DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([userId, domain])
+  @@index([userId])
+}
+
+model VirgilQuestionSession {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  depth          SessionDepth  @default(STANDARD)
+  selectedDomain QuestionDomain?
+  questionIds    String[]      @default([])
+  startedAt      DateTime      @default(now())
+  completedAt    DateTime?
+  status         SessionStatus @default(ACTIVE)
+
+  @@index([userId])
+  @@index([status])
 }
