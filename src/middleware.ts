@@ -77,7 +77,16 @@ export async function middleware(req: NextRequest) {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
   res.headers.set("Content-Security-Policy", CSP);
 
-  // 4. Supabase session refresh — must run last, may replace response object.
+  // 4. Companion detection — set header for downstream route handlers.
+  const host = req.headers.get("host") ?? "";
+  const veronicaDomain = process.env.VERONICA_DOMAIN ?? "veronica.zrossermcintosh.com";
+  if (host === veronicaDomain || host.startsWith("veronica.")) {
+    res.headers.set("x-virgil-companion", "VERONICA");
+  } else {
+    res.headers.set("x-virgil-companion", "VIRGIL");
+  }
+
+  // 5. Supabase session refresh — must run last, may replace response object.
   return refreshSupabaseSession(req, res);
 }
 

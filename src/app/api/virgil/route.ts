@@ -4,7 +4,10 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth/options";
 import { buildTrustContext } from "@/lib/auth/trust-context";
 import { handleVirgilRequest } from "@/lib/virgil/pipeline";
+import { handleVeronicaRequest } from "@/lib/veronica/pipeline";
 import { ACCESS_DENIED_MESSAGE } from "@/lib/virgil/constitution";
+import { VERONICA_ACCESS_DENIED } from "@/lib/veronica/constitution";
+import type { CompanionId } from "@/lib/companions/types";
 
 const Body = z.object({
   input: z.string().min(1).max(8000),
@@ -12,12 +15,17 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  // Determine which companion handles this request.
+  const companionHeader = req.headers.get("x-virgil-companion") ?? "VIRGIL";
+  const companion: CompanionId = companionHeader === "VERONICA" ? "VERONICA" : "VIRGIL";
+  const accessDenied = companion === "VERONICA" ? VERONICA_ACCESS_DENIED : ACCESS_DENIED_MESSAGE;
+
   // Parse and validate body. Bad input -> deny silently.
   let parsed: z.infer<typeof Body>;
   try {
     parsed = Body.parse(await req.json());
   } catch {
-    return NextResponse.json({ message: ACCESS_DENIED_MESSAGE }, { status: 400 });
+    return NextResponse.json({ message: accessDenied }, { status: 400 });
   }
 
   const session = await getServerSession(authOptions);
@@ -35,13 +43,17 @@ export async function POST(req: Request) {
     trustedDeviceFingerprint: fp,
   });
 
-  const response = await handleVirgilRequest({
-    input: parsed.input,
-    trust,
-    taskClass: (parsed.taskClass as never) ?? "CORE_ASSISTANT",
-  });
+  const response = companion === "VERONICA"
+    ? await handleVeronicaRequest({
+        input: parsed.input,
+        trust,
+        taskClass: (parsed.taskClass as never) ?? "CORE_ASSISTANT",
+      })
+    : await handleVirgilRequest({
+        input: parsed.input,
+        trust,
+        taskClass: (parsed.taskClass as never) ?? "CORE_ASSISTANT",
+      });
 
-  // Outsiders never get a 401 — that itself leaks information.
-  // Always 200 with the fixed deny message OR Rosser's real reply.
   return NextResponse.json(response);
 }

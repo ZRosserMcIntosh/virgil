@@ -19,6 +19,7 @@ import {
   VIRGIL_SYSTEM_STYLE,
 } from "./persona/persona-policy";
 import { CORE_MEMORY_SECTIONS, CORE_DECISIONS } from "./core-memory";
+import { buildCovenantPromptSection } from "../companions/covenant";
 
 interface BuildOptions {
   trust: TrustContext;
@@ -117,6 +118,10 @@ function ownerBranch(
   lines.push("[DECISION COMMANDMENTS]");
   CORE_DECISIONS.forEach((d) => lines.push(`  - ${d}`));
   lines.push("━━━ END CORE MEMORY ━━━");
+
+  // ── Shared Covenant — binding Virgil in the two-companion architecture ──
+  lines.push("");
+  lines.push(buildCovenantPromptSection("VIRGIL"));
 
   lines.push("");
   lines.push("ADDRESS POLICY:");
