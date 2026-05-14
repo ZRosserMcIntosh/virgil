@@ -7,17 +7,18 @@ import { callProvider } from "@/lib/virgil/provider-adapter";
 export const dynamic = "force-dynamic";
 
 // POST /api/virgil/questions/[id]/answer
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ message: "Access denied." }, { status: 403 });
   const owner = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!owner || owner.identity !== "OWNER") return NextResponse.json({ message: "Access denied." }, { status: 403 });
 
+  const { id } = await params;
   const { answer, generateFollowups = false } = await req.json();
   if (!answer?.trim()) return NextResponse.json({ message: "Answer required." }, { status: 400 });
 
   const question = await prisma.virgilQuestion.findUnique({
-    where: { id: params.id },
+    where: { id },
   });
 
   if (!question) return NextResponse.json({ message: "Question not found." }, { status: 404 });
@@ -25,7 +26,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Save answer
   const savedAnswer = await prisma.virgilQuestionAnswer.create({
     data: {
-      questionId: params.id,
+      questionId: id,
       userId: owner.id,
       answer: answer.trim(),
     },
@@ -33,7 +34,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   // Mark question answered
   await prisma.virgilQuestion.update({
-    where: { id: params.id },
+    where: { id },
     data: { status: "ANSWERED", answeredAt: new Date() },
   });
 
@@ -82,7 +83,7 @@ Return ONLY a JSON array. Each item must have:
     await prisma.virgilMemoryInference.createMany({
       data: inferences.map((inf) => ({
         userId: owner.id,
-        questionId: params.id,
+        questionId: id,
         answerId: savedAnswer?.id,
         proposedMemory: inf.proposedMemory,
         category: inf.category,
@@ -150,18 +151,19 @@ Answer: ${answer}`;
 }
 
 // PATCH /api/virgil/questions/[id]/answer — update status
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ message: "Access denied." }, { status: 403 });
   const owner = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!owner || owner.identity !== "OWNER") return NextResponse.json({ message: "Access denied." }, { status: 403 });
 
+  const { id } = await params;
   const { status } = await req.json();
   const valid = ["UNASKED", "ASKED", "ANSWERED", "DEFERRED", "RETIRED"];
   if (!valid.includes(status)) return NextResponse.json({ message: "Invalid status." }, { status: 400 });
 
   await (prisma as never as Record<string, never>).virgilQuestion?.update?.({
-    where: { id: params.id },
+    where: { id },
     data: { status: status as never },
   });
 
