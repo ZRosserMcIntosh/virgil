@@ -16,9 +16,9 @@
 
 INSERT INTO "User" (id, email, name, identity, "veronicaOnboarded", "createdAt", "updatedAt")
 VALUES
-  (gen_random_uuid()::text, 'stellaemjuris@gmail.com',      'Stella', 'PEPPER', false, NOW(), NOW()),
-  (gen_random_uuid()::text, 'STELLA_EMAIL_2@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW()),
-  (gen_random_uuid()::text, 'STELLA_EMAIL_3@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW()),
-  (gen_random_uuid()::text, 'STELLA_EMAIL_4@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW())
+  (gen_random_uuid()::text, 'stellaemjuris@gmail.com',       'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'contatoluiseagency@gmail.com',  'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'stella@katura1999.com',         'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'STELLA_EMAIL_4@replace.me',     'Stella', 'PEPPER', false, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
