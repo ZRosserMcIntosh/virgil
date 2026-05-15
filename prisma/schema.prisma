@@ -65,6 +65,13 @@ model User {
   profileDomains  VirgilProfileDomain[]
   questionSessions VirgilQuestionSession[]
 
+  // ── Veronica principal fields (Stella only) ──
+  cpfHash                String?         // HMAC-SHA256 of CPF, never plaintext
+  principalKeyHash       String?         // SHA-256 of derived key — for login verification only
+  passwordHash           String?         // bcrypt hash of Stella's chosen password
+  veronicaOnboarded      Boolean         @default(false)
+  veronicaPrivacyAudit   VeronicaPrivacyAudit[]
+
   @@index([identity])
 }
 
@@ -825,4 +832,61 @@ model VirgilQuestionSession {
 
   @@index([userId])
   @@index([status])
+}
+
+// ── Veronica Privacy Architecture ────────────────────────────────────────────
+//
+// Stella's conversations are encrypted with a key derived from her CPF +
+// password. The key never touches the database. Even the server admin cannot
+// read her data. This is enforced by mathematics, not policy.
+
+/// Every data access touching Stella's rows is logged here. Signed with her
+/// derived key so she can independently verify no unauthorized access occurred.
+model VeronicaPrivacyAudit {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action         String   // "DECRYPT" | "QUERY" | "LOGIN" | "KEY_DERIVE" | "CONVERSATION_STORE"
+  detail         String   // human-readable description
+  ipHash         String?  // hashed IP — not raw
+  signature      String?  // HMAC signed with Stella's key — verifiable only by her
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+/// Stella's conversations — encrypted at rest with her derived key.
+/// Content is ciphertext. Cannot be decrypted without CPF + password.
+model VeronicaConversation {
+  id                String   @id @default(cuid())
+  userId            String   // Stella's user ID
+  encryptedContent  String   // AES-256-GCM ciphertext (base64)
+  encryptedSummary  String?  // encrypted summary for retrieval
+  searchHash        String?  // deterministic hash of keywords for search (no plaintext)
+  tokenEstimate     Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+/// Stella's memories — same encryption as conversations.
+model VeronicaMemory {
+  id                 String   @id @default(cuid())
+  userId             String
+  encryptedTitle     String   // AES-256-GCM ciphertext
+  encryptedContent   String   // AES-256-GCM ciphertext
+  category           String   // stored in plaintext for filtering only — no sensitive data
+  sensitivityLevel   String   @default("PERSONAL_PRIVATE")
+  importance         Int      @default(50)
+  status             String   @default("ACTIVE")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
 }

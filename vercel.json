@@ -22,12 +22,5 @@
     }
   ],
   "rewrites": [],
-  "redirects": [
-    {
-      "source": "/",
-      "has": [{ "type": "cookie", "key": "next-auth.session-token" }],
-      "destination": "/briefing",
-      "permanent": false
-    }
-  ]
+  "redirects": []
 }
