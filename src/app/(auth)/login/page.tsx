@@ -1,12 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Mode = "rosser" | "stella-email" | "stella-login" | "stella-onboard";
 
+// useSearchParams() requires a Suspense boundary in Next.js 15.
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="grid min-h-dvh place-items-center bg-ink-950" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const principal = params.get("p");

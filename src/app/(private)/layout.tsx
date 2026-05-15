@@ -9,6 +9,8 @@ export default async function PrivateLayout({ children }: { children: React.Reac
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
 
+  const companion = (session.user as any).companion ?? "VIRGIL";
+
   const h = await headers();
   const trust = await buildTrustContext({
     session,
@@ -16,8 +18,8 @@ export default async function PrivateLayout({ children }: { children: React.Reac
     userAgent: h.get("user-agent") ?? undefined,
   });
 
-  // Outsider somehow holding a session? Send them away with no detail.
-  if (!trust.isOwner) redirect("/login");
+  // Allow OWNER (Rosser) and PEPPER (Stella) through. All others are redirected.
+  if (!trust.isOwner && !trust.isPepper) redirect("/login");
 
   const trustSummary = {
     authorizationLevel: trust.authorizationLevel,
@@ -27,7 +29,7 @@ export default async function PrivateLayout({ children }: { children: React.Reac
   };
 
   return (
-    <NavShell trust={trustSummary}>
+    <NavShell trust={trustSummary} companion={companion}>
       {children}
     </NavShell>
   );

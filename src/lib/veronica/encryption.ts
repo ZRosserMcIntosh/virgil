@@ -111,13 +111,13 @@ export function isValidCPF(cpf: string): boolean {
   const calc = (slice: number) => {
     let sum = 0;
     for (let i = 0; i < slice; i++) {
-      sum += parseInt(digits[i]) * (slice + 1 - i);
+      sum += parseInt(digits[i] ?? "0") * (slice + 1 - i);
     }
     const rem = sum % 11;
     return rem < 2 ? 0 : 11 - rem;
   };
-  if (calc(9) !== parseInt(digits[9])) return false;
-  if (calc(10) !== parseInt(digits[10])) return false;
+  if (calc(9) !== parseInt(digits[9] ?? "-1")) return false;
+  if (calc(10) !== parseInt(digits[10] ?? "-1")) return false;
   return true;
 }
 
