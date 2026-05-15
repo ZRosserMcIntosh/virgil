@@ -1,35 +1,24 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 04_seed_stella_pepper.sql
 --
--- Creates Stella's PEPPER user row. After this, she can onboard via the
--- /login?p=stella page by entering her CPF and choosing a password.
+-- Creates Stella's PEPPER user rows — one per allowed email address.
+-- She can sign up using any of these emails on her first visit.
 --
--- NOTE: veronicaOnboarded = false means the onboarding flow will activate
--- when she first visits. She will:
---   1. Enter her CPF (verified algorithmically, then HMAC-hashed)
---   2. Choose a password (bcrypt-hashed)
---   3. Her encryption key is derived from CPF + password (PBKDF2, never stored)
---   4. Only a verification hash of the key is saved
+-- Each row is independent: whichever email she completes onboarding with
+-- will have cpfHash / passwordHash / principalKeyHash set.
+-- The others remain as dormant PEPPER rows (veronicaOnboarded = false).
+--
+-- NOTE: VERONICA_ALLOWED_EMAILS in .env / Vercel must include all four.
+-- Format: email1@example.com,email2@example.com,...
 --
 -- Run in Supabase SQL Editor.
 -- ─────────────────────────────────────────────────────────────────────────────
 
-INSERT INTO "User" (
-  id,
-  email,
-  name,
-  identity,
-  "veronicaOnboarded",
-  "createdAt",
-  "updatedAt"
-)
-VALUES (
-  gen_random_uuid()::text,
-  'stellaemjuris@gmail.com',
-  'Stella',
-  'PEPPER',
-  false,
-  NOW(),
-  NOW()
-)
+INSERT INTO "User" (id, email, name, identity, "veronicaOnboarded", "createdAt", "updatedAt")
+VALUES
+  (gen_random_uuid()::text, 'stellaemjuris@gmail.com',      'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'STELLA_EMAIL_2@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'STELLA_EMAIL_3@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW()),
+  (gen_random_uuid()::text, 'STELLA_EMAIL_4@replace.me',    'Stella', 'PEPPER', false, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
+

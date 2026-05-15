@@ -13,6 +13,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db/client";
 import { compare as bcryptCompare } from "bcryptjs";
 import { derivePrincipalKey, hashDerivedKey, hashCPF } from "@/lib/veronica/encryption";
+import { isStellaEmail } from "@/lib/veronica/allowed-emails";
 
 export const authOptions: AuthOptions = {
   session: { strategy: "jwt", maxAge: 60 * 60 * 8 },
@@ -52,20 +53,21 @@ export const authOptions: AuthOptions = {
       id: "veronica",
       name: "Veronica",
       credentials: {
+        email: { label: "E-mail", type: "email" },
         cpf: { label: "CPF", type: "text" },
         password: { label: "Senha", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.cpf || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.cpf || !credentials?.password) return null;
 
-        const stellaEmail = process.env.VERONICA_PRINCIPAL_EMAIL;
-        if (!stellaEmail) return null;
+        const email = credentials.email.trim().toLowerCase();
+        if (!isStellaEmail(email)) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: stellaEmail.toLowerCase().trim() },
+        const user = await (prisma.user as any).findUnique({
+          where: { email },
         });
         if (!user || user.identity !== "PEPPER" || user.suspended) return null;
-        if (!(user as any).veronicaOnboarded) return null;
+        if (!user.veronicaOnboarded) return null;
 
         // Verify CPF hash matches
         const cpfHashed = hashCPF(credentials.cpf);

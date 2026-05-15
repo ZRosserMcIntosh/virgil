@@ -25,17 +25,24 @@ import {
   derivePrincipalKey,
   hashDerivedKey,
 } from "@/lib/veronica/encryption";
+import { isStellaEmail } from "@/lib/veronica/allowed-emails";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const stellaEmail = process.env.VERONICA_PRINCIPAL_EMAIL;
-  if (!stellaEmail) {
-    return NextResponse.json({ message: "Veronica não está configurada." }, { status: 500 });
+  const { email: rawEmail, cpf, password } = await req.json();
+  const email = rawEmail?.trim().toLowerCase();
+
+  if (!email) {
+    return NextResponse.json({ message: "E-mail é obrigatório." }, { status: 400 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email: stellaEmail.toLowerCase().trim() },
+  if (!isStellaEmail(email)) {
+    return NextResponse.json({ message: "Conta não encontrada." }, { status: 404 });
+  }
+
+  const user = await (prisma.user as any).findUnique({
+    where: { email },
   });
 
   if (!user) {
@@ -50,8 +57,6 @@ export async function POST(req: Request) {
   if ((user as any).veronicaOnboarded) {
     return NextResponse.json({ message: "Conta já foi criada." }, { status: 400 });
   }
-
-  const { cpf, password } = await req.json();
 
   // Validate CPF
   if (!cpf || !isValidCPF(cpf)) {
