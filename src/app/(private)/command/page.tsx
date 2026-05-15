@@ -134,7 +134,7 @@ export default function CommandPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-56px)] flex-col lg:h-dvh">
+    <div className="-mx-4 -my-5 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex h-dvh flex-col">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 border-b border-ink-700 px-4 py-3 lg:px-6">

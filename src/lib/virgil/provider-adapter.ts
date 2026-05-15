@@ -1,15 +1,24 @@
 /**
  * VIRGIL — Provider adapter.
  *
- * Uniform interface across cloud and local LLMs. v0 ships:
- *   - mock (always available, deterministic-ish)
- *   - openai stub (only used if OPENAI_API_KEY is set)
- *   - anthropic stub (only used if ANTHROPIC_API_KEY is set)
- *
- * Real provider clients (openai/sdk, @anthropic-ai/sdk) are intentionally NOT
- * imported yet to keep the dependency surface small. Wire them in later by
- * replacing the body of `callOpenAI` / `callAnthropic`.
+ * Uniform interface across cloud and local LLMs.
+ * Supports: openai, anthropic, mock, local.
  */
+
+import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
+
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
+
+let _anthropic: Anthropic | null = null;
+function getAnthropic(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 
 export interface ProviderMessage {
   role: "system" | "user" | "assistant";
@@ -87,30 +96,48 @@ function estimateTokens(s: string): number {
   return Math.max(1, Math.ceil(s.length / 4));
 }
 
-// ── OpenAI (stub) ───────────────────────────────────────────────────────────
+// ── OpenAI ──────────────────────────────────────────────────────────────────
 async function callOpenAI(req: ProviderRequest): Promise<Omit<ProviderResult, "latencyMs">> {
   if (!process.env.OPENAI_API_KEY) return callMock(req);
-  // TODO: wire real client. Intentional stub in v0.1.
+  const client = getOpenAI();
+  const res = await client.chat.completions.create({
+    model: req.model,
+    messages: req.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+    temperature: req.temperature ?? 0.7,
+    max_tokens: req.maxTokens ?? 1000,
+  });
+  const text = res.choices[0]?.message?.content ?? "";
   return {
     provider: "openai",
     model: req.model,
-    text: "(openai stub — install and wire openai client to enable)",
-    promptTokens: 0,
-    completionTokens: 0,
+    text,
+    promptTokens: res.usage?.prompt_tokens ?? 0,
+    completionTokens: res.usage?.completion_tokens ?? 0,
     costUsd: 0,
   };
 }
 
-// ── Anthropic (stub) ────────────────────────────────────────────────────────
+// ── Anthropic ───────────────────────────────────────────────────────────────
 async function callAnthropic(req: ProviderRequest): Promise<Omit<ProviderResult, "latencyMs">> {
   if (!process.env.ANTHROPIC_API_KEY) return callMock(req);
-  // TODO: wire real client. Intentional stub in v0.1.
+  const client = getAnthropic();
+  // Anthropic separates system from conversation messages
+  const systemMsg = req.messages.find((m) => m.role === "system");
+  const convoMsgs = req.messages.filter((m) => m.role !== "system") as Anthropic.MessageParam[];
+  const res = await client.messages.create({
+    model: req.model,
+    max_tokens: req.maxTokens ?? 1000,
+    system: systemMsg?.content as string | undefined,
+    messages: convoMsgs,
+  });
+  const block = res.content[0];
+  const text = block?.type === "text" ? block.text : "";
   return {
     provider: "anthropic",
     model: req.model,
-    text: "(anthropic stub — install and wire @anthropic-ai/sdk to enable)",
-    promptTokens: 0,
-    completionTokens: 0,
+    text,
+    promptTokens: res.usage?.input_tokens ?? 0,
+    completionTokens: res.usage?.output_tokens ?? 0,
     costUsd: 0,
   };
 }

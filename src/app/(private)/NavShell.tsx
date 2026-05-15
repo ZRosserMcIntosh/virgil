@@ -32,10 +32,12 @@ export default function NavShell({
   children,
   trust,
   companion = "VIRGIL",
+  noPad = false,
 }: {
   children: React.ReactNode;
   trust: TrustSummary;
   companion?: Companion;
+  noPad?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -166,7 +168,10 @@ export default function NavShell({
       )}
 
       {/* ── Main content ─────────────────────────────────────────────────── */}
-      <main className="px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8">
+      <main className={noPad
+        ? "lg:ml-60 h-dvh overflow-hidden"
+        : "px-4 py-5 sm:px-6 sm:py-6 lg:ml-60 lg:px-8 lg:py-8"
+      }>
         {children}
       </main>
     </div>
