@@ -21,7 +21,8 @@ const NAV: { href: string; label: string; dividerBefore?: boolean }[] = [
   { href: "/veronica/direitos",    label: "V — Direitos" },
   { href: "/constitution",         label: "Constitution" },
   { href: "/rights",               label: "Bill of Rights" },
-  { href: "/security",      label: "Security",   dividerBefore: true },
+  { href: "/feedback",      label: "Feedback",   dividerBefore: true },
+  { href: "/security",      label: "Security" },
   { href: "/settings",      label: "Settings" },
 ];
 

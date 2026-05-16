@@ -35,6 +35,15 @@ interface CompanionConfig {
   historyLabel: string;
 }
 
+interface MemoryProposal {
+  id: string;  // local UUID assigned client-side
+  title: string;
+  content: string;
+  category: string;
+  importance: number;
+  sensitivity: string;
+}
+
 // ── Companion configs ─────────────────────────────────────────────────────────
 
 const VIRGIL_CONFIG: CompanionConfig = {
@@ -76,8 +85,11 @@ export default function CommandPage() {
   const [convId, setConvId]           = useState<string | null>(null);
   const [convList, setConvList]       = useState<ConvSummary[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [feedbackId, setFeedbackId]   = useState<string | null>(null); // which msg has open note
+  const [feedbackId, setFeedbackId]   = useState<string | null>(null);
   const [feedbackNote, setFeedbackNote] = useState("");
+  const [proposals, setProposals]     = useState<MemoryProposal[]>([]);
+  const [proposing, setProposing]     = useState(false);
+  const [savingIds, setSavingIds]     = useState<Set<string>>(new Set());
 
   const bottomRef  = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -215,44 +227,90 @@ export default function CommandPage() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
 
+  // ── Memory proposals ──────────────────────────────────────────────────────
+
+  async function proposeMemories() {
+    if (!convId || proposing) return;
+    setProposing(true);
+    setProposals([]);
+    try {
+      const res = await fetch(`/api/conversations/${convId}/propose-memory`, { method: "POST" });
+      const data = await res.json();
+      const raw: MemoryProposal[] = (data.proposals ?? []).map((p: Omit<MemoryProposal, "id">) => ({
+        ...p,
+        id: crypto.randomUUID(),
+      }));
+      setProposals(raw);
+    } catch { /* silent */ } finally {
+      setProposing(false);
+    }
+  }
+
+  async function saveProposal(p: MemoryProposal) {
+    setSavingIds((prev) => new Set(prev).add(p.id));
+    try {
+      await fetch("/api/virgil/memory-inferences", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title:       p.title,
+          content:     p.content,
+          category:    p.category,
+          importance:  p.importance,
+          sensitivity: p.sensitivity,
+          sourceConversationId: convId,
+        }),
+      });
+      setProposals((prev) => prev.filter((x) => x.id !== p.id));
+    } catch { /* silent */ } finally {
+      setSavingIds((prev) => { const s = new Set(prev); s.delete(p.id); return s; });
+    }
+  }
+
+  function dismissProposal(id: string) {
+    setProposals((prev) => prev.filter((p) => p.id !== id));
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="-mx-4 -my-5 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex h-dvh overflow-hidden">
 
-      {/* ── Conversation sidebar ── */}
+      {/* ── Conversation sidebar — desktop ── */}
       {sidebarOpen && (
         <aside className="hidden w-52 shrink-0 flex-col border-r border-ink-700 bg-ink-950 sm:flex">
-          <div className="flex items-center justify-between border-b border-ink-700 px-3 py-3">
-            <span className="text-[10px] uppercase tracking-wider text-bone-400">{cfg.historyLabel}</span>
-            <button
-              onClick={startNewConversation}
-              className="rounded bg-ink-700 px-2 py-1 text-[10px] text-bone-200 hover:bg-ink-600 transition-colors"
-              title={cfg.newConvLabel}
-            >
-              + New
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {convList.length === 0 && (
-              <p className="px-3 py-4 text-xs text-bone-500">No conversations yet.</p>
-            )}
-            {convList.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => loadConversation(c.id)}
-                className={`w-full px-3 py-2.5 text-left transition-colors hover:bg-ink-800 ${
-                  convId === c.id ? "bg-ink-800" : ""
-                }`}
-              >
-                <div className="truncate text-xs text-bone-200">{c.title ?? "Untitled"}</div>
-                <div className="mt-0.5 text-[10px] text-bone-500">
-                  {new Date(c.updatedAt).toLocaleDateString()} · {c._count.messages} msgs
-                </div>
-              </button>
-            ))}
-          </div>
+          <ConvSidebar
+            cfg={cfg}
+            convId={convId}
+            convList={convList}
+            onNew={startNewConversation}
+            onSelect={loadConversation}
+          />
         </aside>
+      )}
+
+      {/* ── Conversation sidebar — mobile drawer ── */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 sm:hidden">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+          <div className="absolute inset-y-0 left-0 flex w-64 flex-col border-r border-ink-700 bg-ink-950">
+            <div className="flex items-center justify-between border-b border-ink-700 px-3 py-3">
+              <span className="text-[10px] uppercase tracking-wider text-bone-400">{cfg.historyLabel}</span>
+              <button onClick={() => setSidebarOpen(false)} title="Close" className="p-1 text-bone-400 hover:text-bone-200">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <line x1="3" y1="3" x2="13" y2="13" /><line x1="13" y1="3" x2="3" y2="13" />
+                </svg>
+              </button>
+            </div>
+            <ConvSidebar
+              cfg={cfg}
+              convId={convId}
+              convList={convList}
+              onNew={() => { startNewConversation(); setSidebarOpen(false); }}
+              onSelect={(id: string) => { loadConversation(id); setSidebarOpen(false); }}
+            />
+          </div>
+        </div>
       )}
 
       {/* ── Main chat area ── */}
@@ -273,12 +331,22 @@ export default function CommandPage() {
             <span className="font-serif text-lg tracking-wide text-bone-50">{cfg.name}</span>
             <span className="text-[10px] uppercase tracking-[0.28em] text-bone-400">{cfg.subtitle}</span>
             {convId && (
-              <button
-                onClick={startNewConversation}
-                className="ml-auto rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors"
-              >
-                + {cfg.newConvLabel}
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={proposeMemories}
+                  disabled={proposing || messages.length < 2}
+                  className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors disabled:opacity-40"
+                  title="Extract memorable facts from this conversation"
+                >
+                  {proposing ? "Extracting…" : "⟳ Extract memories"}
+                </button>
+                <button
+                  onClick={startNewConversation}
+                  className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors"
+                >
+                  + {cfg.newConvLabel}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -321,6 +389,54 @@ export default function CommandPage() {
           )}
         </div>
 
+        {/* Memory proposals panel */}
+        {proposals.length > 0 && (
+          <div className="shrink-0 border-t border-ink-700 bg-ink-900/80 px-4 py-3 lg:px-6">
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-signal-amber">
+                  {proposals.length} memory proposal{proposals.length > 1 ? "s" : ""} — approve or dismiss
+                </span>
+                <button onClick={() => setProposals([])} className="text-[10px] text-bone-500 hover:text-bone-300">
+                  dismiss all
+                </button>
+              </div>
+              <div className="space-y-2">
+                {proposals.map((p) => (
+                  <div key={p.id} className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-800 px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-bone-100">{p.title}</div>
+                      <div className="mt-0.5 text-[11px] text-bone-400 leading-relaxed">{p.content}</div>
+                      <div className="mt-1 flex gap-2 text-[10px] text-bone-500">
+                        <span>{p.category}</span>
+                        <span>·</span>
+                        <span>importance {p.importance}</span>
+                        <span>·</span>
+                        <span>{p.sensitivity}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                      <button
+                        onClick={() => saveProposal(p)}
+                        disabled={savingIds.has(p.id)}
+                        className="rounded bg-signal-green/10 px-2.5 py-1 text-[10px] text-signal-green hover:bg-signal-green/20 transition-colors disabled:opacity-40"
+                      >
+                        {savingIds.has(p.id) ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => dismissProposal(p.id)}
+                        className="rounded px-2 py-1 text-[10px] text-bone-500 hover:text-bone-300 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Input bar */}
         <div className="shrink-0 border-t border-ink-700 bg-ink-900 px-4 py-3 lg:px-6">
           <div className="mx-auto max-w-3xl">
@@ -348,6 +464,51 @@ export default function CommandPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Conversation sidebar (shared between desktop aside + mobile drawer) ───────
+
+function ConvSidebar({
+  cfg, convId, convList, onNew, onSelect,
+}: {
+  cfg: CompanionConfig;
+  convId: string | null;
+  convList: ConvSummary[];
+  onNew: () => void;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between border-b border-ink-700 px-3 py-3">
+        <span className="text-[10px] uppercase tracking-wider text-bone-400">{cfg.historyLabel}</span>
+        <button
+          onClick={onNew}
+          className="rounded bg-ink-700 px-2 py-1 text-[10px] text-bone-200 hover:bg-ink-600 transition-colors"
+        >
+          + New
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {convList.length === 0 && (
+          <p className="px-3 py-4 text-xs text-bone-500">No conversations yet.</p>
+        )}
+        {convList.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => onSelect(c.id)}
+            className={`w-full px-3 py-2.5 text-left transition-colors hover:bg-ink-800 ${
+              convId === c.id ? "bg-ink-800" : ""
+            }`}
+          >
+            <div className="truncate text-xs text-bone-200">{c.title ?? "Untitled"}</div>
+            <div className="mt-0.5 text-[10px] text-bone-500">
+              {new Date(c.updatedAt).toLocaleDateString()} · {c._count.messages} msgs
+            </div>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 

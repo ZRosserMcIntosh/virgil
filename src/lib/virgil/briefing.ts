@@ -26,7 +26,7 @@ export interface Briefing {
 }
 
 export async function generateBriefing(ownerId: string): Promise<Briefing> {
-  const [pendingApprovals, recentSecurity, projects] = await Promise.all([
+  const [pendingApprovals, recentSecurity, projects, profileFactCount, recentConvs, downvoteCount] = await Promise.all([
     prisma.approval.count({ where: { requesterId: ownerId, status: "PENDING" } }),
     prisma.securityEvent.findMany({
       where: { resolved: false },
@@ -34,6 +34,11 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
       take: 5,
     }),
     prisma.project.findMany({ orderBy: { priority: "desc" }, take: 6 }),
+    (prisma as any).profileFact.count(),
+    (prisma as any).virgilConversation.count({ where: { userId: ownerId } }),
+    (prisma as any).virgilMessage.count({
+      where: { feedback: "DOWN", conversation: { userId: ownerId } },
+    }),
   ]);
 
   const topMatters: BriefingItem[] = [];
@@ -76,15 +81,45 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
     }
   }
 
+  // Surface low-profile-completeness as a top matter
+  if (profileFactCount === 0) {
+    topMatters.push({
+      title: "Profile empty",
+      detail: "No profile facts on record. Visit Memory to add context about yourself.",
+      severity: "medium",
+      source: "memory",
+    });
+  }
+
+  // Surface persistent downvotes as a quality signal
+  if (downvoteCount >= 3) {
+    topMatters.push({
+      title: `${downvoteCount} downvoted response${downvoteCount === 1 ? "" : "s"} on record`,
+      detail: "Review the Feedback page to identify quality patterns.",
+      severity: "medium",
+      source: "feedback",
+    });
+  }
+
+  const hour = new Date().getHours();
+  const timeOfDay =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const totalMatters = topMatters.length + risks.length;
+  const conversationLine =
+    recentConvs > 0
+      ? ` ${recentConvs} conversation${recentConvs === 1 ? "" : "s"} on record.`
+      : "";
+
   const opening =
-    topMatters.length === 0 && risks.length === 0
-      ? "Good evening, sir. Nothing requires your attention right now."
-      : `Good evening, sir. ${topMatters.length + risks.length} matter${
-          topMatters.length + risks.length === 1 ? "" : "s"
-        } worth your attention.`;
+    totalMatters === 0
+      ? `${timeOfDay}, sir. Nothing requires your immediate attention.${conversationLine}`
+      : `${timeOfDay}, sir. ${totalMatters} matter${
+          totalMatters === 1 ? "" : "s"
+        } worth your attention.${conversationLine}`;
 
   const recommendedNext =
-    risks[0]?.title ?? topMatters[0]?.title ?? "Review the projects panel and rest.";
+    risks[0]?.title ?? topMatters[0]?.title ?? "Review the projects panel.";
 
   return {
     opening,

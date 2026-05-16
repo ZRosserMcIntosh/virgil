@@ -27,6 +27,7 @@ import { callProvider } from "./provider-adapter";
 import { writeAudit } from "./audit";
 import { recordSecurityEvent, triggerBlackDoor } from "./security-events";
 import { bumpAdversaryScore } from "./adversary";
+import { buildProfileContext } from "./profile-context";
 import { prisma } from "@/lib/db/client";
 import { retrieveRelevantMemories, maxSensitivity } from "./memory";
 import type { TrustContext, VirgilResponse } from "./types";
@@ -207,7 +208,16 @@ export async function handleVirgilRequest({
   const routeFinal = routeModel(taskClass, combinedSensitivity, cloudAllowedFinal);
 
   // 11. System prompt + provider call.
-  const system = buildSystemPrompt({ trust, memoryContext: memoryContextText });
+  // Inject ProfileFacts so Virgil knows what Sir has told it about himself and Stella.
+  let profileContextText = "";
+  try {
+    if (trust.isOwner || trust.isPepper) {
+      const profileCtx = await buildProfileContext();
+      profileContextText = profileCtx.combined;
+    }
+  } catch { /* best-effort */ }
+
+  const system = buildSystemPrompt({ trust, memoryContext: memoryContextText, profileContext: profileContextText });
   const userText = cloudAllowedFinal ? privacy.redacted : input;
 
   const result = await callProvider({

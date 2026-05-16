@@ -27,6 +27,7 @@ interface BuildOptions {
   recentBriefingSummary?: string;
   pepperName?: string | null;
   memoryContext?: string;
+  profileContext?: string;
 }
 
 export function buildSystemPrompt({
@@ -35,6 +36,7 @@ export function buildSystemPrompt({
   recentBriefingSummary,
   pepperName,
   memoryContext,
+  profileContext,
 }: BuildOptions): string {
   const lines: string[] = [];
 
@@ -62,7 +64,7 @@ export function buildSystemPrompt({
   // ── Branch by identity ────────────────────────────────────────────────────
   switch (trust.identity) {
     case "OWNER":
-      return ownerBranch(lines, trust, projectFocus, recentBriefingSummary, memoryContext).join("\n");
+      return ownerBranch(lines, trust, projectFocus, recentBriefingSummary, memoryContext, profileContext).join("\n");
     case "PEPPER":
       return pepperBranch(lines, trust, pepperName ?? "the Pepper", memoryContext).join("\n");
     case "DELEGATE":
@@ -91,6 +93,7 @@ function ownerBranch(
   projectFocus?: string,
   recentBriefingSummary?: string,
   memoryContext?: string,
+  profileContext?: string,
 ): string[] {
   lines.push(`CURRENT REQUESTER: ${VIRGIL_OWNER_NAME} (verified principal).`);
   lines.push(`Authorization level: ${trust.authorizationLevel} / 6.`);
@@ -140,6 +143,10 @@ function ownerBranch(
   lines.push("  This is not mockery. It is a banner. It means: this is big, good, break it into parts, start moving.");
 
   appendMemoryContext(lines, memoryContext);
+  if (profileContext) {
+    lines.push("");
+    lines.push(profileContext);
+  }
   return lines;
 }
 
