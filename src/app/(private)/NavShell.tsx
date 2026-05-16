@@ -5,18 +5,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV: { href: string; label: string }[] = [
-  { href: "/briefing",  label: "Briefing" },
-  { href: "/command",   label: "Command" },
-  { href: "/memory",    label: "Memory" },
-  { href: "/questions", label: "Questions" },
-  { href: "/projects",  label: "Projects" },
-  { href: "/agents",    label: "Agents" },
-  { href: "/github",    label: "GitHub" },
-  { href: "/gmail",     label: "Gmail" },
-  { href: "/calendar",  label: "Calendar" },
-  { href: "/approvals", label: "Approvals" },
-  { href: "/security",  label: "Security" },
-  { href: "/settings",  label: "Settings" },
+  { href: "/briefing",     label: "Briefing" },
+  { href: "/command",      label: "Command" },
+  { href: "/memory",       label: "Memory" },
+  { href: "/questions",    label: "Questions" },
+  { href: "/projects",     label: "Projects" },
+  { href: "/agents",       label: "Agents" },
+  { href: "/github",       label: "GitHub" },
+  { href: "/gmail",        label: "Gmail" },
+  { href: "/calendar",     label: "Calendar" },
+  { href: "/approvals",    label: "Approvals" },
+  { href: "/veronica",     label: "Verônica" },
+  { href: "/permissions",  label: "Permissions" },
+  { href: "/security",     label: "Security" },
+  { href: "/settings",     label: "Settings" },
 ];
 
 interface TrustSummary {
