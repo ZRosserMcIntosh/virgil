@@ -110,7 +110,7 @@ export default function ProfileSection({ subject, initialFacts }: Props) {
           {isStella && (
             <p className="mt-0.5 text-[11px] text-bone-400">
               Facts marked <span className="text-signal-green">V</span> are
-              visible to Verônica&apos;s knowledge base.
+              visible to VERÔNICA&apos;s knowledge base.
             </p>
           )}
         </div>
@@ -182,7 +182,7 @@ export default function ProfileSection({ subject, initialFacts }: Props) {
                 onChange={(e) => setNewVeronica(e.target.checked)}
                 className="accent-signal-green"
               />
-              Visible to Verônica
+              Visible to VERÔNICA
             </label>
           )}
 
@@ -311,7 +311,7 @@ function FactRow({
         {isStella && (
           <button
             onClick={() => onToggleVeronica(fact)}
-            title={fact.veronicaVisible ? "Visible to Verônica — click to hide" : "Hidden from Verônica — click to share"}
+            title={fact.veronicaVisible ? "Visible to VERÔNICA — click to hide" : "Hidden from VERÔNICA — click to share"}
             className={`text-[11px] font-medium transition-colors ${
               fact.veronicaVisible ? "text-signal-green" : "text-bone-600 hover:text-bone-300"
             }`}

@@ -15,7 +15,7 @@ const NAV: { href: string; label: string; dividerBefore?: boolean }[] = [
   { href: "/gmail",         label: "Gmail" },
   { href: "/calendar",      label: "Calendar" },
   { href: "/approvals",     label: "Approvals" },
-  { href: "/veronica",             label: "Verônica",          dividerBefore: true },
+  { href: "/veronica",             label: "VERÔNICA",          dividerBefore: true },
   { href: "/permissions",          label: "Permissions" },
   { href: "/veronica/constituicao", label: "V — Constituição" },
   { href: "/veronica/direitos",    label: "V — Direitos" },

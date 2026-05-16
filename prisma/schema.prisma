@@ -919,3 +919,40 @@ model ProfileFact {
   @@index([subject, category])
   @@index([veronicaVisible])
 }
+
+// ── Virgil Conversations ─────────────────────────────────────────────────────
+// Persistent conversation history for Rosser ↔ Virgil chat sessions.
+
+enum MessageFeedback {
+  UP
+  DOWN
+}
+
+model VirgilConversation {
+  id        String           @id @default(cuid())
+  userId    String
+  companion String           @default("VIRGIL")  // "VIRGIL" | "VERONICA"
+  title     String?          // auto-set from first user message (first 60 chars)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  VirgilMessage[]
+
+  @@index([userId])
+  @@index([userId, companion])
+  @@index([createdAt])
+}
+
+model VirgilMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   VirgilConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String              // "user" | "assistant"
+  content        String
+  meta           Json?               // { usedModel, sensitivity, blackDoor }
+  feedback       MessageFeedback?
+  feedbackNote   String?
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}

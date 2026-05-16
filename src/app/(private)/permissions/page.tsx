@@ -60,7 +60,7 @@ export default async function PermissionsPage() {
             <FlowArrow label="Nothing" direction="left" color="red" />
           </div>
 
-          {/* Verônica column */}
+          {/* VERÔNICA column */}
           <div className="bg-ink-950 px-5 py-5">
             <div className="mb-3 font-serif text-lg text-bone-50">VERÔNICA</div>
             <div className="text-[10px] uppercase tracking-wider text-bone-400 mb-2">Knows about</div>
@@ -80,8 +80,8 @@ export default async function PermissionsPage() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Rosser facts" value={totalRosserFacts} note="in Virgil only" color="default" />
         <StatCard label="Stella facts (total)" value={totalStellaFacts} note="stored privately" color="default" />
-        <StatCard label="Shared with Verônica" value={visibleStellaFacts} note="V-visible flag set" color="green" />
-        <StatCard label="Private from Verônica" value={blockedStellaFacts} note="not shared" color="red" />
+        <StatCard label="Shared with VERÔNICA" value={visibleStellaFacts} note="V-visible flag set" color="green" />
+        <StatCard label="Private from VERÔNICA" value={blockedStellaFacts} note="not shared" color="red" />
       </div>
 
       {/* ── Rules table ── */}
@@ -94,7 +94,7 @@ export default async function PermissionsPage() {
             <tr>
               <th className="px-5 py-3">Data Type</th>
               <th className="px-5 py-3">Virgil Can See</th>
-              <th className="px-5 py-3">Verônica Can See</th>
+              <th className="px-5 py-3">VERÔNICA Can See</th>
               <th className="px-5 py-3">Requires</th>
             </tr>
           </thead>

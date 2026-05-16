@@ -104,7 +104,7 @@ export default function VeronicaPreviewPage() {
         {tab === "home" && (
           <div className="px-6 py-8 space-y-6">
             <div className="text-center space-y-2">
-              <div className="font-serif text-3xl tracking-wide text-bone-50">Verônica</div>
+              <div className="font-serif text-3xl tracking-wide text-bone-50">VERÔNICA</div>
               <div className="text-[11px] uppercase tracking-[0.28em] text-bone-400">
                 Sua Assistente Pessoal e Privada
               </div>
