@@ -4,21 +4,25 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV: { href: string; label: string }[] = [
-  { href: "/briefing",     label: "Briefing" },
-  { href: "/command",      label: "Command" },
-  { href: "/memory",       label: "Memory" },
-  { href: "/questions",    label: "Questions" },
-  { href: "/projects",     label: "Projects" },
-  { href: "/agents",       label: "Agents" },
-  { href: "/github",       label: "GitHub" },
-  { href: "/gmail",        label: "Gmail" },
-  { href: "/calendar",     label: "Calendar" },
-  { href: "/approvals",    label: "Approvals" },
-  { href: "/veronica",     label: "Verônica" },
-  { href: "/permissions",  label: "Permissions" },
-  { href: "/security",     label: "Security" },
-  { href: "/settings",     label: "Settings" },
+const NAV: { href: string; label: string; dividerBefore?: boolean }[] = [
+  { href: "/briefing",      label: "Briefing" },
+  { href: "/command",       label: "Command" },
+  { href: "/memory",        label: "Memory" },
+  { href: "/questions",     label: "Questions" },
+  { href: "/projects",      label: "Projects" },
+  { href: "/agents",        label: "Agents" },
+  { href: "/github",        label: "GitHub" },
+  { href: "/gmail",         label: "Gmail" },
+  { href: "/calendar",      label: "Calendar" },
+  { href: "/approvals",     label: "Approvals" },
+  { href: "/veronica",             label: "Verônica",          dividerBefore: true },
+  { href: "/permissions",          label: "Permissions" },
+  { href: "/veronica/constituicao", label: "V — Constituição" },
+  { href: "/veronica/direitos",    label: "V — Direitos" },
+  { href: "/constitution",         label: "Constitution" },
+  { href: "/rights",               label: "Bill of Rights" },
+  { href: "/security",      label: "Security",   dividerBefore: true },
+  { href: "/settings",      label: "Settings" },
 ];
 
 interface TrustSummary {
@@ -66,17 +70,19 @@ export default function NavShell({
         {NAV.map((n) => {
           const active = pathname === n.href || pathname.startsWith(n.href + "/");
           return (
-            <Link
-              key={n.href}
-              href={n.href}
-              className={`block rounded px-2 py-2 text-sm transition-colors ${
-                active
-                  ? "bg-ink-800 text-bone-50"
-                  : "text-bone-300 hover:bg-ink-800 hover:text-bone-50"
-              }`}
-            >
-              {n.label}
-            </Link>
+            <div key={n.href}>
+              {n.dividerBefore && <div className="my-2 h-px w-full bg-ink-800" />}
+              <Link
+                href={n.href}
+                className={`block rounded px-2 py-2 text-sm transition-colors ${
+                  active
+                    ? "bg-ink-800 text-bone-50"
+                    : "text-bone-300 hover:bg-ink-800 hover:text-bone-50"
+                }`}
+              >
+                {n.label}
+              </Link>
+            </div>
           );
         })}
       </nav>

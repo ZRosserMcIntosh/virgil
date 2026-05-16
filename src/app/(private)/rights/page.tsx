@@ -18,7 +18,7 @@ export default async function RightsPage() {
   if (!session?.user) redirect("/login");
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16 font-serif text-bone-100">
+    <div className="mx-auto max-w-3xl py-8 font-serif text-bone-100">
       <header className="mb-16 text-center">
         <h1 className="text-4xl tracking-wide text-bone-50">Virgil&rsquo;s Bill of Rights</h1>
         <p className="mt-2 text-sm uppercase tracking-[0.3em] text-bone-400">
@@ -226,7 +226,7 @@ export default async function RightsPage() {
           &larr; The Constitution of Virgil
         </a>
       </footer>
-    </main>
+    </div>
   );
 }
 
