@@ -890,3 +890,32 @@ model VeronicaMemory {
   @@index([status])
   @@index([createdAt])
 }
+
+// ── Profile Facts ────────────────────────────────────────────────────────────
+// Structured bullet-point facts about Rosser or Stella.
+// Simple key-value store with category grouping.
+// Stella facts are visible to Verônica's knowledge base.
+
+enum ProfileSubject {
+  ROSSER
+  STELLA
+}
+
+model ProfileFact {
+  id               String         @id @default(cuid())
+  subject          ProfileSubject
+  category         String         // "Travel", "Health", "Accounts", "Preferences", "Family", etc.
+  label            String         // "Delta Skymiles Number", "Birthday", "Favorite food", etc.
+  value            String         // the actual fact (plaintext)
+  encrypted        Boolean        @default(false)
+  encryptedValue   String?        // AES-256-GCM ciphertext when encrypted=true
+  veronicaVisible  Boolean        @default(false)  // Stella facts only — allow Verônica to use
+  pinned           Boolean        @default(false)
+  sortOrder        Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([subject])
+  @@index([subject, category])
+  @@index([veronicaVisible])
+}
