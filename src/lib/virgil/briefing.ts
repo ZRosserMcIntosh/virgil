@@ -26,7 +26,7 @@ export interface Briefing {
 }
 
 export async function generateBriefing(ownerId: string): Promise<Briefing> {
-  const [pendingApprovals, recentSecurity, projects, profileFactCount, recentConvs, downvoteCount] = await Promise.all([
+  const [pendingApprovals, recentSecurity, projects, profileFactCount, recentConvs, downvoteCount, openTasks] = await Promise.all([
     prisma.approval.count({ where: { requesterId: ownerId, status: "PENDING" } }),
     prisma.securityEvent.findMany({
       where: { resolved: false },
@@ -39,6 +39,7 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
     (prisma as any).virgilMessage.count({
       where: { feedback: "DOWN", conversation: { userId: ownerId } },
     }),
+    (prisma as any).task?.count({ where: { status: "TODO" } }).catch(() => 0),
   ]);
 
   const topMatters: BriefingItem[] = [];
@@ -79,6 +80,16 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
         source: "projects",
       });
     }
+  }
+
+  // Open tasks
+  if (openTasks > 0) {
+    topMatters.push({
+      title: `${openTasks} open task${openTasks === 1 ? "" : "s"}`,
+      detail: "Visit Tasks to review your to-do list.",
+      severity: openTasks > 5 ? "high" : "medium",
+      source: "tasks",
+    });
   }
 
   // Surface low-profile-completeness as a top matter

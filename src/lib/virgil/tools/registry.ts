@@ -11,6 +11,8 @@ import { weatherTool }    from "./weather";
 import { searchTool }     from "./search";
 import { calculatorTool } from "./calculator";
 import { memoryTool }     from "./memory";
+import { taskTool }       from "./tasks";
+import { contactTool }    from "./contacts";
 import type { ToolDefinition } from "./types";
 
 /**
@@ -23,6 +25,8 @@ export const OWNER_TOOLS: ToolDefinition[] = [
   searchTool,
   calculatorTool,
   memoryTool,
+  taskTool,
+  contactTool,
 ];
 
 /**

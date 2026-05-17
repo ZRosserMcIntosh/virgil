@@ -95,6 +95,7 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speakingId, setSpeakingId]     = useState<string | null>(null);
   const [listening, setListening]       = useState(false);
+  const [convSearch, setConvSearch]     = useState("");
 
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
@@ -112,6 +113,20 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   }, [companion]);
 
   useEffect(() => { loadConvList(); }, [loadConvList]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        startNewConversation();
+        textareaRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // ── Load conversation from URL param on mount ─────────────────────────────
 
@@ -385,6 +400,16 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
             { role: "assistant", content: fullText,  meta: meta ?? null },
           ]),
         });
+
+        // Auto-generate title for new conversations (fire and forget)
+        if (!convId) {
+          fetch(`/api/conversations/${cid}/auto-title`, { method: "POST" })
+            .then((r) => r.json())
+            .then(({ title }) => {
+              if (title) setConvList((prev) => prev.map((c) => c.id === cid ? { ...c, title } : c));
+            })
+            .catch(() => { /* silent */ });
+        }
       }
     } catch {
       setMessages((prev) =>
@@ -444,6 +469,8 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
             convList={convList}
             onNew={startNewConversation}
             onSelect={loadConversation}
+            search={convSearch}
+            onSearchChange={setConvSearch}
           />
         </aside>
       )}
@@ -467,6 +494,8 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
               convList={convList}
               onNew={() => { startNewConversation(); setSidebarOpen(false); }}
               onSelect={(id: string) => { loadConversation(id); setSidebarOpen(false); }}
+              search={convSearch}
+              onSearchChange={setConvSearch}
             />
           </div>
         </div>
@@ -661,14 +690,20 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
 // ── Conversation sidebar ──────────────────────────────────────────────────────
 
 function ConvSidebar({
-  cfg, convId, convList, onNew, onSelect,
+  cfg, convId, convList, onNew, onSelect, search, onSearchChange,
 }: {
   cfg: CompanionConfig;
   convId: string | null;
   convList: ConvSummary[];
   onNew: () => void;
   onSelect: (id: string) => void;
+  search: string;
+  onSearchChange: (v: string) => void;
 }) {
+  const filtered = search.trim()
+    ? convList.filter((c) => (c.title ?? "").toLowerCase().includes(search.toLowerCase()))
+    : convList;
+
   return (
     <>
       <div className="flex items-center justify-between border-b border-ink-700 px-3 py-3">
@@ -680,11 +715,20 @@ function ConvSidebar({
           + New
         </button>
       </div>
+      <div className="px-2 py-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search…"
+          className="w-full rounded border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-[11px] text-bone-200 placeholder-bone-500 outline-none focus:border-ink-400"
+        />
+      </div>
       <div className="flex-1 overflow-y-auto">
-        {convList.length === 0 && (
-          <p className="px-3 py-4 text-xs text-bone-500">No conversations yet.</p>
+        {filtered.length === 0 && (
+          <p className="px-3 py-4 text-xs text-bone-500">{search ? "No matches." : "No conversations yet."}</p>
         )}
-        {convList.map((c) => (
+        {filtered.map((c) => (
           <button
             key={c.id}
             onClick={() => onSelect(c.id)}
@@ -721,9 +765,16 @@ function MessageBubble({
 }) {
   if (msg.role === "user") {
     return (
-      <div className="flex justify-end py-2">
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-ink-700 px-4 py-2.5">
+      <div className="flex justify-end py-2 group">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-ink-700 px-4 py-2.5 relative">
           <p className="text-sm leading-relaxed text-bone-100 whitespace-pre-wrap">{msg.content}</p>
+          <button
+            onClick={() => navigator.clipboard.writeText(msg.content)}
+            className="absolute -left-8 top-2 rounded p-1 text-bone-600 opacity-0 group-hover:opacity-100 hover:text-bone-300 transition-opacity"
+            title="Copy"
+          >
+            <CopyIcon />
+          </button>
         </div>
       </div>
     );
@@ -783,6 +834,14 @@ function MessageBubble({
               <SpeakerIcon active={!!isSpeaking} />
             </button>
           )}
+          {/* Copy button */}
+          <button
+            onClick={() => navigator.clipboard.writeText(msg.content)}
+            className="rounded p-1 text-bone-600 opacity-0 group-hover:opacity-100 hover:text-bone-300 transition-opacity"
+            title="Copy response"
+          >
+            <CopyIcon />
+          </button>
           {msg.meta?.usedModel && (
             <span className="ml-1 text-[9px] text-bone-600 opacity-0 group-hover:opacity-100 transition-opacity">
               {msg.meta.usedModel}
@@ -855,6 +914,15 @@ function MicIcon({ active }: { active: boolean }) {
       <path d="M2 7a5 5 0 0 0 10 0" />
       <line x1="7" y1="12" x2="7" y2="14" />
       <line x1="4.5" y1="14" x2="9.5" y2="14" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="8" height="8" rx="1" />
+      <path d="M10 4V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
     </svg>
   );
 }

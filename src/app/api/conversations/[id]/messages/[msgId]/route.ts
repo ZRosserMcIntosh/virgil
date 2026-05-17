@@ -17,13 +17,15 @@ export async function PATCH(
   const conv = await (prisma as any).virgilConversation.findFirst({ where: { id, userId } });
   if (!conv) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const { feedback, feedbackNote } = await req.json();
+  const { feedback, feedbackNote, bookmarked, pinned } = await req.json();
 
   const updated = await (prisma as any).virgilMessage.update({
     where: { id: msgId, conversationId: id },
     data: {
       ...(feedback !== undefined && { feedback }),
       ...(feedbackNote !== undefined && { feedbackNote: String(feedbackNote).slice(0, 500) }),
+      ...(bookmarked !== undefined && { bookmarked: !!bookmarked }),
+      ...(pinned !== undefined && { pinned: !!pinned }),
     },
   });
 

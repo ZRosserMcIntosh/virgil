@@ -12,6 +12,8 @@ import { executeWeather }    from "./weather";
 import { executeSearch }     from "./search";
 import { executeCalculator } from "./calculator";
 import { executeMemory }     from "./memory";
+import { executeTask }       from "./tasks";
+import { executeContact }    from "./contacts";
 
 export interface ExecutorContext {
   userId: string;
@@ -28,6 +30,8 @@ export async function executeTool(
       case "search_web":           return await executeSearch(call);
       case "calculate":            return await executeCalculator(call);
       case "get_memory":           return await executeMemory(call, ctx.userId);
+      case "manage_tasks":         return await executeTask(call);
+      case "lookup_contact":       return await executeContact(call);
       default:
         return {
           toolCallId: call.id,

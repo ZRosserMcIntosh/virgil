@@ -4,28 +4,32 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV: { href: string; label: string; dividerBefore?: boolean }[] = [
+const NAV: { href: string; label: string; dividerBefore?: boolean; ownerOnly?: boolean; pepperOnly?: boolean }[] = [
   { href: "/briefing",      label: "Briefing" },
   { href: "/command",       label: "Command" },
   { href: "/memory",        label: "Memory" },
-  { href: "/questions",     label: "Questions" },
-  { href: "/projects",      label: "Projects" },
-  { href: "/agents",        label: "Agents" },
-  { href: "/github",        label: "GitHub" },
-  { href: "/gmail",         label: "Gmail" },
+  { href: "/questions",     label: "Questions",    ownerOnly: true },
+  { href: "/projects",      label: "Projects",     ownerOnly: true },
+  { href: "/tasks",         label: "Tasks" },
+  { href: "/contacts",      label: "Contacts",     ownerOnly: true },
+  { href: "/agents",        label: "Agents",       ownerOnly: true },
+  { href: "/github",        label: "GitHub",       ownerOnly: true },
+  { href: "/gmail",         label: "Gmail",        ownerOnly: true },
   { href: "/calendar",      label: "Calendar" },
-  { href: "/approvals",     label: "Approvals" },
-  { href: "/veronica",              label: "VERÔNICA",            dividerBefore: true },
-  { href: "/veronica/interface",    label: "V — Interface" },
-  { href: "/permissions",           label: "Permissions" },
-  { href: "/veronica/constituicao", label: "V — Constituição" },
-  { href: "/veronica/direitos",    label: "V — Direitos" },
-  { href: "/constitution",         label: "Constitution" },
-  { href: "/rights",               label: "Bill of Rights" },
+  { href: "/approvals",     label: "Approvals",    ownerOnly: true },
+  { href: "/veronica",              label: "VERÔNICA",            dividerBefore: true, ownerOnly: true },
+  { href: "/veronica/interface",    label: "V — Interface",       ownerOnly: true },
+  { href: "/permissions",           label: "Permissions",         ownerOnly: true },
+  { href: "/veronica/constituicao", label: "V — Constituição",    ownerOnly: true },
+  { href: "/veronica/direitos",    label: "V — Direitos",         ownerOnly: true },
+  { href: "/constitution",         label: "Constitution",         ownerOnly: true },
+  { href: "/rights",               label: "Bill of Rights",       ownerOnly: true },
   { href: "/feedback",      label: "Feedback",   dividerBefore: true },
-  { href: "/usage",          label: "Usage" },
-  { href: "/security",      label: "Security" },
+  { href: "/audit",          label: "Audit Log",  ownerOnly: true },
+  { href: "/usage",          label: "Usage",      ownerOnly: true },
+  { href: "/security",      label: "Security",    ownerOnly: true },
   { href: "/settings",      label: "Settings" },
+  { href: "/export",        label: "Export",      ownerOnly: true },
 ];
 
 interface TrustSummary {
@@ -55,6 +59,13 @@ export default function NavShell({
   const title    = isVeronica ? "VERÔNICA"            : "VIRGIL";
   const subtitle = isVeronica ? "Inteligência Privada" : "Command Intelligence";
 
+  // Filter nav items based on companion
+  const filteredNav = NAV.filter((n) => {
+    if (isVeronica && n.ownerOnly) return false;
+    if (!isVeronica && n.pepperOnly) return false;
+    return true;
+  });
+
   useEffect(() => { setOpen(false); }, [pathname]);
   useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
@@ -70,7 +81,7 @@ export default function NavShell({
       </div>
 
       <nav className="space-y-0.5">
-        {NAV.map((n) => {
+        {filteredNav.map((n) => {
           const active = pathname === n.href || pathname.startsWith(n.href + "/");
           return (
             <div key={n.href}>

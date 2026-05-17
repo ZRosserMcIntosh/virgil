@@ -439,6 +439,7 @@ model Project {
 
   memories          Memory[]
   approvals         Approval[]
+  tasks             Task[]
 }
 
 // ── Agents ──────────────────────────────────────────────────────────────────
@@ -951,8 +952,94 @@ model VirgilMessage {
   meta           Json?               // { usedModel, sensitivity, blackDoor }
   feedback       MessageFeedback?
   feedbackNote   String?
+  pinned         Boolean             @default(false)
+  bookmarked     Boolean             @default(false)
   createdAt      DateTime            @default(now())
 
   @@index([conversationId])
   @@index([createdAt])
+}
+
+// ── Contacts / People CRM ────────────────────────────────────────────────────
+
+model Contact {
+  id             String   @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  role           String?  // "client", "friend", "coworker", "family", etc.
+  company        String?
+  notes          String?
+  birthday       String?  // ISO date string or "MM-DD"
+  importantDates Json?    // [{ label, date }]
+  tags           String[] @default([])
+  lastContactAt  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([name])
+  @@index([email])
+}
+
+// ── Tasks ────────────────────────────────────────────────────────────────────
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+  contactId      String?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  tags           String[]     @default([])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([projectId])
+}
+
+// ── Notification Preferences ────────────────────────────────────────────────
+
+model NotificationPreference {
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  briefingEmail Boolean @default(false)
+  deadlineAlerts Boolean @default(true)
+  securityAlerts Boolean @default(true)
+  prAlerts       Boolean @default(true)
+  emailDigest    Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── Briefing Archive ────────────────────────────────────────────────────────
+
+model BriefingArchive {
+  id           String   @id @default(cuid())
+  userId       String
+  content      Json     // full Briefing object
+  generatedAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([generatedAt])
 }
