@@ -99,7 +99,8 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const audioRef       = useRef<HTMLAudioElement | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const mediaRecRef    = useRef<MediaRecorder | null>(null);
+  const chunksRef      = useRef<Blob[]>([]);
 
   // ── Load conversation list ────────────────────────────────────────────────
 
@@ -238,58 +239,74 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
     setProposals((prev) => prev.filter((p) => p.id !== id));
   }
 
-  // ── Microphone (voice input) ──────────────────────────────────────────────
+  // ── Microphone — ElevenLabs STT via MediaRecorder ────────────────────────
 
-  function toggleMic() {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Voice input is not supported in this browser. Try Chrome or Edge.");
-      return;
-    }
-
+  async function toggleMic() {
+    // ── Stop recording ──────────────────────────────────────────────────────
     if (listening) {
-      recognitionRef.current?.stop();
+      mediaRecRef.current?.stop();          // triggers onstop → transcribe
       setListening(false);
       return;
     }
 
-    const rec = new SpeechRecognition();
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.lang = companion === "VERONICA" ? "pt-BR" : "en-US";
+    // ── Start recording ─────────────────────────────────────────────────────
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      alert("Microphone access denied. Please allow microphone use in your browser settings.");
+      return;
+    }
 
-    rec.onstart = () => setListening(true);
-    rec.onend   = () => setListening(false);
-    rec.onerror = () => setListening(false);
+    // Pick the best supported container (webm is preferred for Chromium; ogg for Firefox)
+    const mimeType =
+      MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")           ? "audio/webm"
+      : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus") ? "audio/ogg;codecs=opus"
+      : "";
 
-    rec.onresult = (event: any) => {
-      const transcript = Array.from(event.results as SpeechRecognitionResultList)
-        .map((r: SpeechRecognitionResult) => r[0]?.transcript ?? "")
-        .join("");
-      setInput(transcript);
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    chunksRef.current = [];
 
-      if (event.results[event.results.length - 1].isFinal) {
-        setTimeout(() => {
-          setInput((current) => {
-            if (current.trim()) {
-              const q = current.trim();
-              if (q) {
-                const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: q };
-                const assistantId = crypto.randomUUID();
-                setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "" }]);
-                sendText(q, assistantId);
-              }
-            }
-            return "";
-          });
-        }, 100);
-      }
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
     };
 
-    recognitionRef.current = rec;
-    rec.start();
+    recorder.onstop = async () => {
+      // Stop all tracks so the mic indicator goes away
+      stream.getTracks().forEach((t) => t.stop());
+
+      const blob = new Blob(chunksRef.current, { type: mimeType || "audio/webm" });
+      chunksRef.current = [];
+
+      if (blob.size < 500) return; // too short to be useful
+
+      // Transcribe via ElevenLabs
+      const form = new FormData();
+      form.append("audio", blob, "recording.webm");
+      form.append("companion", companion);
+
+      try {
+        const res = await fetch("/api/virgil/transcribe", { method: "POST", body: form });
+        if (!res.ok) return;
+        const { text } = await res.json();
+        if (!text) return;
+
+        // If auto-send mode: send immediately. Otherwise: drop into input box.
+        const q = text.trim();
+        const assistantId = crypto.randomUUID();
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "user", content: q },
+          { id: assistantId,         role: "assistant", content: "" },
+        ]);
+        sendText(q, assistantId);
+      } catch { /* silent */ }
+    };
+
+    mediaRecRef.current = recorder;
+    recorder.start();
+    setListening(true);
   }
 
   // ── sendText (core — used by both send() and voice) ──────────────────────
@@ -621,7 +638,7 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
                     ? "bg-signal-red/20 text-signal-red animate-pulse"
                     : "text-bone-400 hover:bg-ink-700 hover:text-bone-200"
                 }`}
-                title={listening ? "Stop listening" : "Speak to Virgil"}
+                title={listening ? "Tap to stop recording" : "Speak — powered by ElevenLabs"}
               >
                 <MicIcon active={listening} />
               </button>
