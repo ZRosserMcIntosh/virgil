@@ -92,10 +92,12 @@ export default function CommandPage() {
   const [savingIds, setSavingIds]     = useState<Set<string>>(new Set());
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speakingId, setSpeakingId]   = useState<string | null>(null);
+  const [listening, setListening]     = useState(false);
 
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const audioRef    = useRef<HTMLAudioElement | null>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const textareaRef  = useRef<HTMLTextAreaElement>(null);
+  const audioRef     = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   // ── Load conversation list ────────────────────────────────────────────────
 
@@ -135,67 +137,19 @@ export default function CommandPage() {
     setInput("");
   }
 
-  // ── Send ──────────────────────────────────────────────────────────────────
+  // ── Send (streaming) ─────────────────────────────────────────────────────
 
   async function send() {
     const q = input.trim();
     if (!q || busy) return;
-
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: q };
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantId = crypto.randomUUID();
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: "user", content: q },
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setInput("");
-    setBusy(true);
-
-    try {
-      const res = await fetch(cfg.apiEndpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [cfg.apiBodyKey]: q }),
-      });
-      const data = await res.json();
-
-      const assistantMsg: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.message ?? data.reply ?? "—",
-        meta: { usedModel: data.usedModel, sensitivity: data.sensitivity, blackDoor: data.blackDoor },
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-
-      // ── Persist ──────────────────────────────────────────────────────────
-      let cid = convId;
-      if (!cid) {
-        const created = await fetch("/api/conversations", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ companion, title: q.slice(0, 80) }),
-        }).then((r) => r.json());
-        cid = created.id;
-        setConvId(cid);
-        setConvList((prev) => [created, ...prev]);
-      }
-      if (cid) {
-        await fetch(`/api/conversations/${cid}/messages`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify([
-            { role: "user",      content: q,                     meta: null },
-            { role: "assistant", content: assistantMsg.content,  meta: assistantMsg.meta ?? null },
-          ]),
-        });
-      }
-
-    } catch {
-      setMessages((prev) => [...prev, {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: companion === "VERONICA"
-          ? "Desculpe, houve um erro de conexão."
-          : "Connection error. Please try again.",
-      }]);
-    } finally {
-      setBusy(false);
-    }
+    await sendText(q, assistantId);
   }
 
   // ── Feedback ─────────────────────────────────────────────────────────────
@@ -274,7 +228,151 @@ export default function CommandPage() {
     setProposals((prev) => prev.filter((p) => p.id !== id));
   }
 
-  // ── Voice ─────────────────────────────────────────────────────────────────
+  // ── Microphone (voice input) ──────────────────────────────────────────────
+
+  function toggleMic() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice input is not supported in this browser. Try Chrome or Edge.");
+      return;
+    }
+
+    // If already listening, stop
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = companion === "VERONICA" ? "pt-BR" : "en-US";
+
+    rec.onstart = () => setListening(true);
+    rec.onend   = () => setListening(false);
+    rec.onerror = () => setListening(false);
+
+    rec.onresult = (event: any) => {
+      const transcript = Array.from(event.results as SpeechRecognitionResultList)
+        .map((r: SpeechRecognitionResult) => r[0]?.transcript ?? "")
+        .join("");
+      setInput(transcript);
+
+      // If final result, auto-send
+      if (event.results[event.results.length - 1].isFinal) {
+        // Small delay so the input state settles before send
+        setTimeout(() => {
+          setInput((current) => {
+            if (current.trim()) {
+              // Trigger send with current value directly
+              const q = current.trim();
+              if (q) {
+                const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: q };
+                const assistantId = crypto.randomUUID();
+                setMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", content: "" }]);
+                sendText(q, assistantId);
+              }
+            }
+            return "";
+          });
+        }, 100);
+      }
+    };
+
+    recognitionRef.current = rec;
+    rec.start();
+  }
+
+  // ── sendText (core — used by both send() and voice) ──────────────────────
+
+  async function sendText(q: string, assistantId: string) {
+    setBusy(true);
+    let fullText = "";
+    let meta: Message["meta"] = {};
+
+    try {
+      const res = await fetch("/api/virgil/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-virgil-companion": companion,
+        },
+        body: JSON.stringify({ input: q }),
+      });
+
+      if (!res.ok || !res.body) throw new Error("Stream failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") continue;
+          if (payload.startsWith("[META]")) {
+            try { meta = JSON.parse(payload.slice(6)); } catch { /* ignore */ }
+            continue;
+          }
+          const chunk = payload.replace(/\\n/g, "\n");
+          fullText += chunk;
+          setMessages((prev) =>
+            prev.map((m) => m.id === assistantId ? { ...m, content: fullText } : m)
+          );
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => m.id === assistantId ? { ...m, content: fullText, meta } : m)
+      );
+
+      if (voiceEnabled && fullText) {
+        speakMessage({ id: assistantId, role: "assistant", content: fullText, meta });
+      }
+
+      let cid = convId;
+      if (!cid) {
+        const created = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ companion, title: q.slice(0, 80) }),
+        }).then((r) => r.json());
+        cid = created.id;
+        setConvId(cid);
+        setConvList((prev) => [created, ...prev]);
+      }
+      if (cid) {
+        await fetch(`/api/conversations/${cid}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify([
+            { role: "user",      content: q,        meta: null },
+            { role: "assistant", content: fullText,  meta: meta ?? null },
+          ]),
+        });
+      }
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: companion === "VERONICA" ? "Desculpe, houve um erro de conexão." : "Connection error. Please try again." }
+            : m
+        )
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function speakMessage(msg: Message) {
     // Stop any currently playing audio
@@ -508,6 +606,19 @@ export default function CommandPage() {
                 onKeyDown={handleKeyDown}
                 disabled={busy}
               />
+              {/* Microphone button */}
+              <button
+                onClick={toggleMic}
+                disabled={busy}
+                className={`shrink-0 rounded-md p-1.5 transition-colors disabled:opacity-30 ${
+                  listening
+                    ? "bg-signal-red/20 text-signal-red animate-pulse"
+                    : "text-bone-400 hover:bg-ink-700 hover:text-bone-200"
+                }`}
+                title={listening ? "Stop listening" : "Speak to Virgil"}
+              >
+                <MicIcon active={listening} />
+              </button>
               <button
                 onClick={send}
                 disabled={busy || !input.trim()}
@@ -709,6 +820,17 @@ function SpeakerIcon({ active }: { active: boolean }) {
       <path d="M2 5h2.5L8 2v10L4.5 9H2V5Z" />
       <path d="M10 4.5a3.5 3.5 0 0 1 0 5" />
       {active && <path d="M11.5 2.5a6 6 0 0 1 0 9" />}
+    </svg>
+  );
+}
+
+function MicIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4.5" y="1" width="5" height="7" rx="2.5" fill={active ? "currentColor" : "none"} />
+      <path d="M2 7a5 5 0 0 0 10 0" />
+      <line x1="7" y1="12" x2="7" y2="14" />
+      <line x1="4.5" y1="14" x2="9.5" y2="14" />
     </svg>
   );
 }

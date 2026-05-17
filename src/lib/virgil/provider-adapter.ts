@@ -58,6 +58,84 @@ export async function callProvider(req: ProviderRequest): Promise<ProviderResult
   }
 }
 
+/**
+ * Streaming variant — returns a ReadableStream of text chunks (plain strings).
+ * Only OpenAI and Anthropic support streaming; others fall back to callProvider.
+ */
+export async function callProviderStream(req: ProviderRequest): Promise<ReadableStream<string>> {
+  if (req.provider === "openai" && process.env.OPENAI_API_KEY) {
+    return streamOpenAI(req);
+  }
+  if (req.provider === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+    return streamAnthropic(req);
+  }
+  // Fallback: collect full response and emit as single chunk
+  const result = await callProvider(req);
+  return new ReadableStream<string>({
+    start(controller) {
+      controller.enqueue(result.text);
+      controller.close();
+    },
+  });
+}
+
+async function streamOpenAI(req: ProviderRequest): Promise<ReadableStream<string>> {
+  const client = getOpenAI();
+  const stream = await client.chat.completions.create({
+    model: req.model,
+    messages: req.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+    temperature: req.temperature ?? 0.7,
+    max_tokens: req.maxTokens ?? 1200,
+    stream: true,
+  });
+
+  return new ReadableStream<string>({
+    async start(controller) {
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content;
+          if (delta) controller.enqueue(delta);
+        }
+      } finally {
+        controller.close();
+      }
+    },
+    cancel() {
+      stream.controller.abort();
+    },
+  });
+}
+
+async function streamAnthropic(req: ProviderRequest): Promise<ReadableStream<string>> {
+  const client = getAnthropic();
+  const systemMsg = req.messages.find((m) => m.role === "system");
+  const convoMsgs = req.messages.filter((m) => m.role !== "system") as Anthropic.MessageParam[];
+
+  const stream = await client.messages.stream({
+    model: req.model,
+    max_tokens: req.maxTokens ?? 1200,
+    system: systemMsg?.content as string | undefined,
+    messages: convoMsgs,
+  });
+
+  return new ReadableStream<string>({
+    async start(controller) {
+      try {
+        for await (const chunk of stream) {
+          if (
+            chunk.type === "content_block_delta" &&
+            chunk.delta.type === "text_delta"
+          ) {
+            controller.enqueue(chunk.delta.text);
+          }
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
 function finish(partial: Omit<ProviderResult, "latencyMs">, start: number): ProviderResult {
   return { ...partial, latencyMs: Date.now() - start };
 }
