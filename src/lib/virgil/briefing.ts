@@ -8,6 +8,43 @@
 
 import { prisma } from "@/lib/db/client";
 
+// ── Weather helper (Open-Meteo — no API key required) ────────────────────────
+
+interface WeatherSummary {
+  temp: number;     // °F
+  condition: string;
+  icon: string;
+}
+
+async function fetchWeather(lat = 30.2672, lon = -97.7431): Promise<WeatherSummary | null> {
+  // Defaults to Austin, TX. Override with user's lat/lon when profile supports it.
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weathercode&temperature_unit=fahrenheit&timezone=auto`;
+    const res = await fetch(url, { next: { revalidate: 1800 } }); // cache 30 min
+    if (!res.ok) return null;
+    const data = await res.json();
+    const temp  = Math.round(data.current.temperature_2m);
+    const code  = data.current.weathercode as number;
+    const { condition, icon } = wmoDescription(code);
+    return { temp, condition, icon };
+  } catch {
+    return null;
+  }
+}
+
+function wmoDescription(code: number): { condition: string; icon: string } {
+  if (code === 0)                    return { condition: "Clear sky",          icon: "☀️" };
+  if (code <= 2)                     return { condition: "Partly cloudy",      icon: "⛅" };
+  if (code === 3)                    return { condition: "Overcast",            icon: "☁️" };
+  if (code <= 49)                    return { condition: "Foggy",               icon: "🌫️" };
+  if (code <= 59)                    return { condition: "Drizzle",             icon: "🌦️" };
+  if (code <= 69)                    return { condition: "Rain",                icon: "🌧️" };
+  if (code <= 79)                    return { condition: "Snow",                icon: "❄️" };
+  if (code <= 84)                    return { condition: "Rain showers",        icon: "🌧️" };
+  if (code <= 94)                    return { condition: "Snow showers",        icon: "🌨️" };
+  return                                    { condition: "Thunderstorm",        icon: "⛈️" };
+}
+
 export interface BriefingItem {
   title: string;
   detail: string;
@@ -23,10 +60,11 @@ export interface Briefing {
   pendingApprovals: number;
   recommendedNext: string;
   generatedAt: string;
+  weather?: WeatherSummary;
 }
 
 export async function generateBriefing(ownerId: string): Promise<Briefing> {
-  const [pendingApprovals, recentSecurity, projects, profileFactCount, recentConvs, downvoteCount, openTasks] = await Promise.all([
+  const [pendingApprovals, recentSecurity, projects, profileFactCount, recentConvs, downvoteCount, openTasks, weather] = await Promise.all([
     prisma.approval.count({ where: { requesterId: ownerId, status: "PENDING" } }),
     prisma.securityEvent.findMany({
       where: { resolved: false },
@@ -40,6 +78,7 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
       where: { feedback: "DOWN", conversation: { userId: ownerId } },
     }),
     (prisma as any).task?.count({ where: { status: "TODO" } }).catch(() => 0),
+    fetchWeather(),
   ]);
 
   const topMatters: BriefingItem[] = [];
@@ -116,6 +155,10 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
   const timeOfDay =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+  const weatherLine = weather
+    ? ` ${weather.icon} ${weather.temp}°F, ${weather.condition}.`
+    : "";
+
   const totalMatters = topMatters.length + risks.length;
   const conversationLine =
     recentConvs > 0
@@ -124,10 +167,10 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
 
   const opening =
     totalMatters === 0
-      ? `${timeOfDay}, sir. Nothing requires your immediate attention.${conversationLine}`
+      ? `${timeOfDay}, sir. Nothing requires your immediate attention.${conversationLine}${weatherLine}`
       : `${timeOfDay}, sir. ${totalMatters} matter${
           totalMatters === 1 ? "" : "s"
-        } worth your attention.${conversationLine}`;
+        } worth your attention.${conversationLine}${weatherLine}`;
 
   const recommendedNext =
     risks[0]?.title ?? topMatters[0]?.title ?? "Review the projects panel.";
@@ -140,5 +183,6 @@ export async function generateBriefing(ownerId: string): Promise<Briefing> {
     pendingApprovals,
     recommendedNext,
     generatedAt: new Date().toISOString(),
+    weather: weather ?? undefined,
   };
 }

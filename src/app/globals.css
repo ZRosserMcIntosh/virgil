@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Syntax highlighting — atom-one-dark theme */
+@import "highlight.js/styles/atom-one-dark.css";
+
 :root {
   color-scheme: dark;
 }

@@ -3,6 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,6 +17,7 @@ interface Message {
   meta?: { usedModel?: string; sensitivity?: string; blackDoor?: boolean };
   feedback?: "UP" | "DOWN";
   feedbackNote?: string;
+  editedFrom?: string; // original content if edited
 }
 
 interface ConvSummary {
@@ -96,6 +100,9 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   const [speakingId, setSpeakingId]     = useState<string | null>(null);
   const [listening, setListening]       = useState(false);
   const [convSearch, setConvSearch]     = useState("");
+  const [editingId, setEditingId]       = useState<string | null>(null);
+  const [editDraft, setEditDraft]       = useState("");
+  const [paletteOpen, setPaletteOpen]   = useState(false);
 
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
@@ -122,6 +129,14 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
         e.preventDefault();
         startNewConversation();
         textareaRef.current?.focus();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+      if (e.key === "Escape") {
+        setPaletteOpen(false);
+        setEditingId(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -162,6 +177,25 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
     setMessages([]);
     setInput("");
     router.push("/command");
+  }
+
+  // ── Edit + re-run a user message ─────────────────────────────────────────
+
+  async function commitEdit(msg: Message) {
+    const newContent = editDraft.trim();
+    if (!newContent || newContent === msg.content) { setEditingId(null); return; }
+
+    // Truncate messages at edit point (remove this message and everything after)
+    const idx = messages.findIndex((m) => m.id === msg.id);
+    const assistantId = crypto.randomUUID();
+    setMessages([
+      ...messages.slice(0, idx),
+      { ...msg, content: newContent, editedFrom: msg.content },
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
+    setEditingId(null);
+    setEditDraft("");
+    await sendText(newContent, assistantId);
   }
 
   // ── Send (streaming) ─────────────────────────────────────────────────────
@@ -458,6 +492,7 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="-mx-4 -my-5 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8 flex h-dvh overflow-hidden">
 
       {/* ── Conversation sidebar — desktop ── */}
@@ -577,6 +612,11 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
                   onFeedback={submitFeedback}
                   onSpeak={voiceEnabled ? speakMessage : undefined}
                   isSpeaking={speakingId === msg.id}
+                  editingId={editingId}
+                  editDraft={editDraft}
+                  setEditingId={setEditingId}
+                  setEditDraft={setEditDraft}
+                  onCommitEdit={commitEdit}
                 />
               ))}
               {busy && (
@@ -684,6 +724,18 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
         </div>
       </div>
     </div>
+
+    {/* ── Command Palette ── */}
+    {paletteOpen && (
+      <CommandPalette
+        onClose={() => setPaletteOpen(false)}
+        onNewConv={() => { startNewConversation(); setPaletteOpen(false); textareaRef.current?.focus(); }}
+        onSearch={(q) => { setConvSearch(q); setSidebarOpen(true); setPaletteOpen(false); }}
+        convList={convList}
+        onSelectConv={(id) => { loadConversation(id); setPaletteOpen(false); }}
+      />
+    )}
+    </>
   );
 }
 
@@ -751,7 +803,7 @@ function ConvSidebar({
 
 function MessageBubble({
   msg, cfg, feedbackId, feedbackNote, setFeedbackId, setFeedbackNote, onFeedback,
-  onSpeak, isSpeaking,
+  onSpeak, isSpeaking, editingId, editDraft, setEditingId, setEditDraft, onCommitEdit,
 }: {
   msg: Message;
   cfg: CompanionConfig;
@@ -762,19 +814,71 @@ function MessageBubble({
   onFeedback: (msg: Message, vote: "UP" | "DOWN", note?: string) => void;
   onSpeak?: (msg: Message) => void;
   isSpeaking?: boolean;
+  editingId: string | null;
+  editDraft: string;
+  setEditingId: (id: string | null) => void;
+  setEditDraft: (v: string) => void;
+  onCommitEdit: (msg: Message) => void;
 }) {
+  const isEditing = editingId === msg.id;
+
   if (msg.role === "user") {
     return (
       <div className="flex justify-end py-2 group">
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-ink-700 px-4 py-2.5 relative">
-          <p className="text-sm leading-relaxed text-bone-100 whitespace-pre-wrap">{msg.content}</p>
-          <button
-            onClick={() => navigator.clipboard.writeText(msg.content)}
-            className="absolute -left-8 top-2 rounded p-1 text-bone-600 opacity-0 group-hover:opacity-100 hover:text-bone-300 transition-opacity"
-            title="Copy"
-          >
-            <CopyIcon />
-          </button>
+        <div className="max-w-[80%] relative">
+          {isEditing ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                autoFocus
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                title="Edit your message"
+                placeholder="Edit your message…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onCommitEdit(msg); }
+                  if (e.key === "Escape") { setEditingId(null); setEditDraft(""); }
+                }}
+                className="w-full min-w-[260px] resize-none rounded-lg border border-ink-500 bg-ink-700 px-3 py-2 text-sm text-bone-100 outline-none focus:border-ink-400"
+                rows={Math.max(2, editDraft.split("\n").length)}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => { setEditingId(null); setEditDraft(""); }}
+                  className="rounded px-2.5 py-1 text-xs text-bone-400 hover:text-bone-200 transition-colors"
+                >Cancel</button>
+                <button
+                  onClick={() => onCommitEdit(msg)}
+                  className="rounded bg-ink-600 px-2.5 py-1 text-xs text-bone-100 hover:bg-ink-500 transition-colors"
+                >Re-run</button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl rounded-tr-sm bg-ink-700 px-4 py-2.5 relative">
+              <p className="text-sm leading-relaxed text-bone-100 whitespace-pre-wrap">{msg.content}</p>
+              {msg.editedFrom && (
+                <span className="absolute -bottom-4 right-0 text-[9px] text-bone-600 italic">edited</span>
+              )}
+            </div>
+          )}
+          {/* Left action buttons on hover */}
+          {!isEditing && (
+            <div className="absolute -left-16 top-1.5 hidden group-hover:flex items-center gap-0.5">
+              <button
+                onClick={() => { setEditDraft(msg.content); setEditingId(msg.id); }}
+                className="rounded p-1 text-bone-600 hover:text-bone-300 transition-colors"
+                title="Edit and re-run"
+              >
+                <EditIcon />
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(msg.content)}
+                className="rounded p-1 text-bone-600 hover:text-bone-300 transition-colors"
+                title="Copy"
+              >
+                <CopyIcon />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -789,7 +893,19 @@ function MessageBubble({
       </div>
       <div className="flex-1 min-w-0">
         <div className="mb-1 text-[10px] uppercase tracking-wider text-bone-400">{cfg.assistantBadge(msg.meta)}</div>
-        <p className="text-sm leading-relaxed text-bone-50 whitespace-pre-wrap">{msg.content}</p>
+        {/* Markdown rendered response */}
+        <div className="prose prose-invert prose-sm max-w-none text-bone-50
+          prose-headings:text-bone-100 prose-headings:font-serif
+          prose-p:text-bone-50 prose-p:leading-relaxed
+          prose-a:text-signal-amber prose-a:no-underline hover:prose-a:underline
+          prose-code:text-signal-green prose-code:bg-ink-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+          prose-pre:bg-ink-900 prose-pre:border prose-pre:border-ink-700 prose-pre:rounded-lg
+          prose-blockquote:border-l-ink-600 prose-blockquote:text-bone-400
+          prose-li:text-bone-50 prose-strong:text-bone-100 prose-hr:border-ink-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {msg.content}
+          </ReactMarkdown>
+        </div>
 
         {/* Feedback + voice controls */}
         <div className="mt-2 flex items-center gap-1.5">
@@ -924,5 +1040,102 @@ function CopyIcon() {
       <rect x="4" y="4" width="8" height="8" rx="1" />
       <path d="M10 4V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
     </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.5 2.5 11.5 4.5 5 11H3V9L9.5 2.5Z" />
+      <line x1="8" y1="4" x2="10" y2="6" />
+    </svg>
+  );
+}
+
+// ── Command Palette ───────────────────────────────────────────────────────────
+
+function CommandPalette({
+  onClose, onNewConv, onSearch, convList, onSelectConv,
+}: {
+  onClose: () => void;
+  onNewConv: () => void;
+  onSearch: (q: string) => void;
+  convList: ConvSummary[];
+  onSelectConv: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const filteredConvs = query.trim()
+    ? convList.filter((c) => (c.title ?? "").toLowerCase().includes(query.toLowerCase())).slice(0, 6)
+    : convList.slice(0, 6);
+
+  const actions = [
+    { label: "New conversation", hint: "⌘K", action: onNewConv },
+    { label: "Search conversations", hint: "", action: () => onSearch(query) },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg rounded-xl border border-ink-600 bg-ink-900 shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-ink-700 px-4 py-3">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="shrink-0 text-bone-500">
+            <circle cx="6" cy="6" r="4" /><line x1="9.5" y1="9.5" x2="13" y2="13" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search or jump to…"
+            className="flex-1 bg-transparent text-sm text-bone-100 placeholder-bone-500 outline-none"
+          />
+          <kbd className="rounded border border-ink-600 px-1.5 py-0.5 text-[10px] text-bone-500">Esc</kbd>
+        </div>
+        <div className="max-h-80 overflow-y-auto divide-y divide-ink-800">
+          {/* Quick actions */}
+          <div className="px-2 py-1">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-bone-600">Actions</div>
+            {actions.map((a) => (
+              <button
+                key={a.label}
+                onClick={a.action}
+                className="flex w-full items-center justify-between rounded px-3 py-2.5 text-sm text-bone-200 hover:bg-ink-700 transition-colors"
+              >
+                <span>{a.label}</span>
+                {a.hint && <kbd className="text-[10px] text-bone-500">{a.hint}</kbd>}
+              </button>
+            ))}
+          </div>
+          {/* Conversations */}
+          {filteredConvs.length > 0 && (
+            <div className="px-2 py-1">
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-bone-600">Conversations</div>
+              {filteredConvs.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => onSelectConv(c.id)}
+                  className="flex w-full items-center justify-between rounded px-3 py-2.5 text-sm text-bone-200 hover:bg-ink-700 transition-colors"
+                >
+                  <span className="truncate">{c.title ?? "Untitled"}</span>
+                  <span className="shrink-0 text-[10px] text-bone-500">
+                    {new Date(c.updatedAt).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {query && filteredConvs.length === 0 && (
+            <div className="px-5 py-4 text-sm text-bone-500">No conversations matching &ldquo;{query}&rdquo;</div>
+          )}
+        </div>
+        <div className="border-t border-ink-800 px-4 py-2 text-[10px] text-bone-600">
+          ↑↓ navigate · Enter select · Esc close · ⌘/ toggle
+        </div>
+      </div>
+    </div>
   );
 }
