@@ -20,7 +20,7 @@ export async function PATCH(
   const { feedback, feedbackNote } = await req.json();
 
   const updated = await (prisma as any).virgilMessage.update({
-    where: { id: msgId },
+    where: { id: msgId, conversationId: id },
     data: {
       ...(feedback !== undefined && { feedback }),
       ...(feedbackNote !== undefined && { feedbackNote: String(feedbackNote).slice(0, 500) }),
@@ -44,7 +44,7 @@ export async function DELETE(
   if (!conv) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await (prisma as any).virgilMessage.update({
-    where: { id: msgId },
+    where: { id: msgId, conversationId: id },
     data: { feedback: null, feedbackNote: null },
   });
 

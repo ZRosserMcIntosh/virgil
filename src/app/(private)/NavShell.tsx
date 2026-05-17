@@ -23,6 +23,7 @@ const NAV: { href: string; label: string; dividerBefore?: boolean }[] = [
   { href: "/constitution",         label: "Constitution" },
   { href: "/rights",               label: "Bill of Rights" },
   { href: "/feedback",      label: "Feedback",   dividerBefore: true },
+  { href: "/usage",          label: "Usage" },
   { href: "/security",      label: "Security" },
   { href: "/settings",      label: "Settings" },
 ];

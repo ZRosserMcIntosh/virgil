@@ -11,7 +11,16 @@ export async function PATCH(
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const companion = (session.user as any).companion ?? "VIRGIL";
+  const isOwner = companion === "VIRGIL";
   const { id } = await params;
+
+  // Verify ownership: owner edits ROSSER facts, Stella edits STELLA facts.
+  const existing = await prisma.profileFact.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (isOwner  && existing.subject !== "ROSSER") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isOwner && existing.subject !== "STELLA") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const body = await req.json();
 
   const fact = await prisma.profileFact.update({
@@ -37,7 +46,15 @@ export async function DELETE(
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const companion = (session.user as any).companion ?? "VIRGIL";
+  const isOwner = companion === "VIRGIL";
   const { id } = await params;
+
+  const existing = await prisma.profileFact.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (isOwner  && existing.subject !== "ROSSER") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isOwner && existing.subject !== "STELLA") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   await prisma.profileFact.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

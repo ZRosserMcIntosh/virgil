@@ -128,7 +128,10 @@ export function isValidCPF(cpf: string): boolean {
  */
 export function hashCPF(cpf: string): string {
   const normalized = cpf.replace(/\D/g, "");
-  const pepper = process.env.VERONICA_CPF_PEPPER ?? "veronica-cpf-default-pepper";
+  const pepper = process.env.VERONICA_CPF_PEPPER;
+  if (!pepper) {
+    throw new Error("FATAL: VERONICA_CPF_PEPPER is not set. Refusing to hash CPF with a default value.");
+  }
   return createHmac("sha256", pepper).update(normalized).digest("hex");
 }
 
