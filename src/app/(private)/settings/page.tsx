@@ -24,9 +24,13 @@ export default async function SettingsPage() {
   const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
 
   // Load notification prefs (or default all false)
-  const rawPrefs = user ? await (prisma as any).notificationPreference?.findUnique({
-    where: { userId: user.id },
-  }).catch(() => null) : null;
+  const rawPrefs = user
+    ? await (async () => {
+        try {
+          return await (prisma as any).notificationPreference.findUnique({ where: { userId: user.id } });
+        } catch { return null; }
+      })()
+    : null;
 
   const notifPrefs = {
     briefingEmail:  rawPrefs?.briefingEmail  ?? false,

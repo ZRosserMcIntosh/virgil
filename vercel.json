@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "virgil",
-  "buildCommand": "npm run build",
+  "buildCommand": "npx prisma db push --accept-data-loss && npm run build",
   "installCommand": "npm install",
   "framework": "nextjs",
   "regions": ["iad1"],
