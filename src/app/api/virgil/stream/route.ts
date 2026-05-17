@@ -26,9 +26,11 @@ import { decidePermission } from "@/lib/virgil/permissions";
 import { classifyAndPrepareForCloud, rehydrate, validateModelOutput } from "@/lib/virgil/privacy-gateway";
 import { scanInput } from "@/lib/virgil/injection-defense";
 import { routeModel } from "@/lib/virgil/model-router";
-import { callProviderStream } from "@/lib/virgil/provider-adapter";
+import { callProviderAgentStream } from "@/lib/virgil/provider-adapter";
 import { retrieveRelevantMemories, maxSensitivity } from "@/lib/virgil/memory";
 import { buildProfileContext } from "@/lib/virgil/profile-context";
+import { OWNER_TOOLS, PEPPER_TOOLS, GUEST_TOOLS } from "@/lib/virgil/tools/registry";
+import { executeTools } from "@/lib/virgil/tools/executor";
 import type { CompanionId } from "@/lib/companions/types";
 
 export const runtime = "nodejs";
@@ -114,16 +116,36 @@ export async function POST(req: NextRequest) {
   const userText = cloudAllowedFinal ? privacy.redacted : parsed.input;
 
   // ── Stream ────────────────────────────────────────────────────────────────
-  const textStream = await callProviderStream({
-    provider: routeFinal.spec.provider,
-    model: routeFinal.spec.model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user",   content: userText },
-    ],
-    temperature: 0.3,
-    maxTokens: 1200,
-  });
+  // ── Select tools based on identity ───────────────────────────────────────
+  const availableTools =
+    trust.isOwner  ? OWNER_TOOLS  :
+    trust.isPepper ? PEPPER_TOOLS :
+    GUEST_TOOLS;
+
+  const textStream = await callProviderAgentStream(
+    {
+      provider: routeFinal.spec.provider,
+      model: routeFinal.spec.model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user",   content: userText },
+      ],
+      tools: availableTools,
+      temperature: 0.3,
+      maxTokens: 1200,
+    },
+    async (calls) => {
+      const results = await executeTools(
+        calls,
+        { userId: trust.userId ?? "unknown" },
+      );
+      return results.map((r) => ({
+        toolCallId: r.toolCallId,
+        name: r.name,
+        content: r.content,
+      }));
+    },
+  );
 
   const meta = {
     usedModel: `${routeFinal.spec.provider}:${routeFinal.spec.model}`,

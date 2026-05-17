@@ -7,6 +7,7 @@
 
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import type { ToolDefinition, ToolCall } from "./tools/types";
 
 let _openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -231,4 +232,124 @@ async function callLocal(req: ProviderRequest): Promise<Omit<ProviderResult, "la
     completionTokens: 0,
     costUsd: 0,
   };
+}
+
+// ── Tool-calling (OpenAI only) ────────────────────────────────────────────────
+
+export interface ToolCallRequest extends ProviderRequest {
+  tools: ToolDefinition[];
+}
+
+export interface ToolCallResponse {
+  /** Tool calls requested by the model, if any. */
+  toolCalls: ToolCall[];
+  /** Final text (empty string if model requested tool calls instead). */
+  text: string;
+  /** OpenAI message to append to history for multi-turn tool loops. */
+  assistantMessage: OpenAI.Chat.ChatCompletionMessageParam;
+}
+
+/**
+ * First pass of an agentic tool loop.
+ * Returns either tool calls to execute, or a final text response.
+ * Only supports OpenAI — falls back to callProvider for other providers.
+ */
+export async function callProviderWithTools(
+  req: ToolCallRequest,
+): Promise<ToolCallResponse> {
+  if (req.provider !== "openai" || !process.env.OPENAI_API_KEY) {
+    const result = await callProvider(req);
+    return { toolCalls: [], text: result.text, assistantMessage: { role: "assistant", content: result.text } };
+  }
+
+  const client = getOpenAI();
+  const { toOpenAITools } = await import("./tools/registry");
+  const tools = toOpenAITools(req.tools);
+
+  const res = await client.chat.completions.create({
+    model: req.model,
+    messages: req.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+    tools,
+    tool_choice: "auto",
+    temperature: req.temperature ?? 0.3,
+    max_tokens: req.maxTokens ?? 1200,
+  });
+
+  const choice = res.choices[0];
+  if (!choice) {
+    return { toolCalls: [], text: "", assistantMessage: { role: "assistant", content: "" } };
+  }
+  const msg = choice.message;
+
+  if (msg.tool_calls && msg.tool_calls.length > 0) {
+    const toolCalls: ToolCall[] = msg.tool_calls
+      .filter((tc): tc is OpenAI.Chat.ChatCompletionMessageFunctionToolCall =>
+        "function" in tc && tc.type === "function"
+      )
+      .map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: (() => { try { return JSON.parse(tc.function.arguments || "{}"); } catch { return {}; } })(),
+      }));
+    return { toolCalls, text: "", assistantMessage: msg };
+  }
+
+  return {
+    toolCalls: [],
+    text: msg.content ?? "",
+    assistantMessage: msg,
+  };
+}
+
+/**
+ * Complete an agentic tool loop:
+ * 1. Ask model (with tools available)
+ * 2. If tool calls requested, execute them all
+ * 3. Feed results back, get final streaming response
+ *
+ * Returns a ReadableStream of the final text (same format as callProviderStream).
+ */
+export async function callProviderAgentStream(
+  req: ToolCallRequest,
+  executeFn: (calls: ToolCall[]) => Promise<Array<{ toolCallId: string; name: string; content: string }>>,
+): Promise<ReadableStream<string>> {
+  if (req.provider !== "openai" || !process.env.OPENAI_API_KEY) {
+    return callProviderStream(req);
+  }
+
+  // Step 1: first pass with tools
+  const firstPass = await callProviderWithTools(req);
+
+  // No tool calls — stream the text directly
+  if (firstPass.toolCalls.length === 0) {
+    return new ReadableStream<string>({
+      start(controller) {
+        controller.enqueue(firstPass.text);
+        controller.close();
+      },
+    });
+  }
+
+  // Step 2: execute tools in parallel
+  const toolResults = await executeFn(firstPass.toolCalls);
+
+  // Step 3: build continuation messages
+  const continuationMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    ...req.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+    firstPass.assistantMessage,
+    ...toolResults.map((r) => ({
+      role: "tool" as const,
+      tool_call_id: r.toolCallId,
+      content: r.content,
+    })),
+  ];
+
+  // Step 4: stream final response
+  return streamOpenAI({
+    ...req,
+    messages: continuationMessages.map((m) => ({
+      role: m.role as "system" | "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
+    })),
+  });
 }
