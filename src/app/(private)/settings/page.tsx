@@ -4,6 +4,9 @@
  * Shows every connector in the registry with a ✅ / ❌ status indicator.
  * Server-rendered; process.env is read at module load inside the registry.
  */
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
+import { prisma } from "@/lib/db/client";
 import {
   CONNECTOR_REGISTRY,
   CATEGORY_LABELS,
@@ -11,10 +14,28 @@ import {
   type ConnectorDef,
   type ConnectorCategory,
 } from "@/lib/virgil/connectors/registry";
+import NotificationPreferences from "@/components/NotificationPreferences";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const session = await getServerSession(authOptions);
+  const email = session?.user?.email?.toLowerCase();
+  const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+
+  // Load notification prefs (or default all false)
+  const rawPrefs = user ? await (prisma as any).notificationPreference?.findUnique({
+    where: { userId: user.id },
+  }).catch(() => null) : null;
+
+  const notifPrefs = {
+    briefingEmail:  rawPrefs?.briefingEmail  ?? false,
+    deadlineAlerts: rawPrefs?.deadlineAlerts ?? true,
+    securityAlerts: rawPrefs?.securityAlerts ?? true,
+    prAlerts:       rawPrefs?.prAlerts       ?? false,
+    emailDigest:    rawPrefs?.emailDigest    ?? false,
+  };
+
   const byCategory = new Map<ConnectorCategory, ConnectorDef[]>();
   for (const cat of CATEGORY_ORDER) byCategory.set(cat, []);
   for (const c of CONNECTOR_REGISTRY) {
@@ -61,6 +82,8 @@ export default function SettingsPage() {
           <FlagRow name="VIRGIL_OWNER_NAME" value={process.env.VIRGIL_OWNER_NAME ?? "(default: Rosser)"} />
         </div>
       </section>
+
+      <NotificationPreferences initial={notifPrefs} />
     </div>
   );
 }

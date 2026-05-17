@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import ProfileSection from "@/components/ProfileSection";
+import MemoryTable from "@/components/MemoryTable";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,18 @@ export default async function MemoryPage() {
     }),
   ]);
 
+  const tableRows = memories.map((m) => ({
+    id:              m.id,
+    title:           m.title,
+    category:        m.category,
+    sensitivity:     m.sensitivity,
+    importance:      m.importance,
+    cloudAllowed:    m.cloudAllowed,
+    neverSendToCloud: m.neverSendToCloud,
+    encrypted:       m.encrypted,
+    updatedAt:       m.updatedAt.toISOString(),
+  }));
+
   return (
     <div className="space-y-8">
       <header>
@@ -35,52 +48,7 @@ export default async function MemoryPage() {
 
       <div>
         <div className="v-label mb-3">Memory Ledger</div>
-        <div className="v-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-900 text-left text-[11px] uppercase tracking-wider text-bone-400">
-              <tr>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Sensitivity</th>
-                <th className="px-4 py-3">Cloud</th>
-                <th className="px-4 py-3">Importance</th>
-                <th className="px-4 py-3">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {memories.length === 0 && (
-                <tr>
-                  <td className="px-4 py-6 text-bone-400" colSpan={6}>
-                    No memory records yet.
-                  </td>
-                </tr>
-              )}
-              {memories.map((m) => (
-                <tr key={m.id} className="border-t border-ink-700">
-                  <td className="px-4 py-3 text-bone-50">
-                    {m.title}
-                    {m.encrypted && (
-                      <span className="ml-2 text-[10px] text-signal-amber">encrypted</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-bone-200">{m.category}</td>
-                  <td className="px-4 py-3 text-bone-200">{m.sensitivity}</td>
-                  <td className="px-4 py-3 text-bone-200">
-                    {m.neverSendToCloud ? (
-                      <span className="text-signal-red">never</span>
-                    ) : m.cloudAllowed ? (
-                      <span className="text-signal-green">allowed</span>
-                    ) : (
-                      <span className="text-signal-amber">restricted</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-bone-200">{m.importance}</td>
-                  <td className="px-4 py-3 text-bone-400">{m.updatedAt.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <MemoryTable initialRows={tableRows} />
       </div>
     </div>
   );

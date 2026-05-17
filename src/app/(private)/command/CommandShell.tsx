@@ -18,6 +18,8 @@ interface Message {
   feedback?: "UP" | "DOWN";
   feedbackNote?: string;
   editedFrom?: string; // original content if edited
+  quotedId?: string;   // id of the message being replied to
+  quotedSnippet?: string; // short excerpt of the quoted message
 }
 
 interface ConvSummary {
@@ -103,6 +105,8 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
   const [editingId, setEditingId]       = useState<string | null>(null);
   const [editDraft, setEditDraft]       = useState("");
   const [paletteOpen, setPaletteOpen]   = useState(false);
+  const [quoteMsg, setQuoteMsg]         = useState<Message | null>(null);
+  const [modelOverride, setModelOverride] = useState<string>("auto");
 
   const bottomRef      = useRef<HTMLDivElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
@@ -204,13 +208,20 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
     const q = input.trim();
     if (!q || busy) return;
     const assistantId = crypto.randomUUID();
+    const quoted = quoteMsg;
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), role: "user", content: q },
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: q,
+        ...(quoted && { quotedId: quoted.id, quotedSnippet: quoted.content.slice(0, 120) }),
+      },
       { id: assistantId, role: "assistant", content: "" },
     ]);
     setInput("");
-    await sendText(q, assistantId);
+    setQuoteMsg(null);
+    await sendText(q, assistantId, quoted);
   }
 
   // ── Feedback ─────────────────────────────────────────────────────────────
@@ -360,10 +371,15 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
 
   // ── sendText (core — used by both send() and voice) ──────────────────────
 
-  async function sendText(q: string, assistantId: string) {
+  async function sendText(q: string, assistantId: string, quoted?: Message | null) {
     setBusy(true);
     let fullText = "";
     let meta: Message["meta"] = {};
+
+    // Prepend quoted context for the model if this is a reply
+    const contextualInput = quoted
+      ? `[Replying to: "${quoted.content.slice(0, 200)}${quoted.content.length > 200 ? "…" : ""}"]\n\n${q}`
+      : q;
 
     try {
       const res = await fetch("/api/virgil/stream", {
@@ -372,7 +388,10 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
           "content-type": "application/json",
           "x-virgil-companion": companion,
         },
-        body: JSON.stringify({ input: q }),
+        body: JSON.stringify({
+          input: contextualInput,
+          ...(modelOverride !== "auto" && { modelOverride }),
+        }),
       });
 
       if (!res.ok || !res.body) throw new Error("Stream failed");
@@ -617,6 +636,7 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
                   setEditingId={setEditingId}
                   setEditDraft={setEditDraft}
                   onCommitEdit={commitEdit}
+                  onReply={setQuoteMsg}
                 />
               ))}
               {busy && (
@@ -686,18 +706,49 @@ export default function CommandShell({ initialConvId }: { initialConvId?: string
 
         {/* Input bar */}
         <div className="shrink-0 border-t border-ink-700 bg-ink-900 px-4 py-3 lg:px-6">
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-3xl space-y-1.5">
+            {/* Quote preview bar */}
+            {quoteMsg && (
+              <div className="flex items-start gap-2 rounded-md border border-ink-600 bg-ink-800/60 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] uppercase tracking-wider text-bone-500 mb-0.5">Replying to</div>
+                  <div className="truncate text-xs text-bone-300">{quoteMsg.content.slice(0, 140)}{quoteMsg.content.length > 140 ? "…" : ""}</div>
+                </div>
+                <button
+                  onClick={() => setQuoteMsg(null)}
+                  className="shrink-0 text-bone-500 hover:text-bone-300 transition-colors"
+                  title="Cancel reply"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                  </svg>
+                </button>
+              </div>
+            )}
             <div className="flex items-end gap-2 rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 focus-within:border-ink-500 transition-colors">
               <textarea
                 ref={textareaRef}
                 className="flex-1 resize-none bg-transparent text-sm text-bone-100 placeholder-bone-400 outline-none"
                 rows={1}
-                placeholder={cfg.placeholder}
+                placeholder={quoteMsg ? "Reply…" : cfg.placeholder}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={busy}
               />
+              {/* Model selector */}
+              <select
+                value={modelOverride}
+                onChange={(e) => setModelOverride(e.target.value)}
+                className="shrink-0 rounded bg-ink-700 border-none text-[10px] text-bone-400 px-1.5 py-1 outline-none hover:text-bone-200 transition-colors cursor-pointer"
+                title="Model override"
+              >
+                <option value="auto">Auto</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o mini</option>
+                <option value="claude-3-5-sonnet">Claude Sonnet</option>
+                <option value="claude-3-haiku">Claude Haiku</option>
+              </select>
               {/* Microphone button */}
               <button
                 onClick={toggleMic}
@@ -803,7 +854,7 @@ function ConvSidebar({
 
 function MessageBubble({
   msg, cfg, feedbackId, feedbackNote, setFeedbackId, setFeedbackNote, onFeedback,
-  onSpeak, isSpeaking, editingId, editDraft, setEditingId, setEditDraft, onCommitEdit,
+  onSpeak, isSpeaking, editingId, editDraft, setEditingId, setEditDraft, onCommitEdit, onReply,
 }: {
   msg: Message;
   cfg: CompanionConfig;
@@ -819,6 +870,7 @@ function MessageBubble({
   setEditingId: (id: string | null) => void;
   setEditDraft: (v: string) => void;
   onCommitEdit: (msg: Message) => void;
+  onReply: (msg: Message) => void;
 }) {
   const isEditing = editingId === msg.id;
 
@@ -854,6 +906,12 @@ function MessageBubble({
             </div>
           ) : (
             <div className="rounded-2xl rounded-tr-sm bg-ink-700 px-4 py-2.5 relative">
+              {/* Quoted snippet */}
+              {msg.quotedSnippet && (
+                <div className="mb-2 rounded border-l-2 border-ink-400 bg-ink-800/60 px-2.5 py-1.5 text-xs text-bone-400 italic">
+                  {msg.quotedSnippet.slice(0, 120)}{msg.quotedSnippet.length > 120 ? "…" : ""}
+                </div>
+              )}
               <p className="text-sm leading-relaxed text-bone-100 whitespace-pre-wrap">{msg.content}</p>
               {msg.editedFrom && (
                 <span className="absolute -bottom-4 right-0 text-[9px] text-bone-600 italic">edited</span>
@@ -958,6 +1016,14 @@ function MessageBubble({
           >
             <CopyIcon />
           </button>
+          {/* Reply button */}
+          <button
+            onClick={() => onReply(msg)}
+            className="rounded p-1 text-bone-600 opacity-0 group-hover:opacity-100 hover:text-bone-300 transition-opacity"
+            title="Quote-reply"
+          >
+            <ReplyIcon />
+          </button>
           {msg.meta?.usedModel && (
             <span className="ml-1 text-[9px] text-bone-600 opacity-0 group-hover:opacity-100 transition-opacity">
               {msg.meta.usedModel}
@@ -1048,6 +1114,15 @@ function EditIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9.5 2.5 11.5 4.5 5 11H3V9L9.5 2.5Z" />
       <line x1="8" y1="4" x2="10" y2="6" />
+    </svg>
+  );
+}
+
+function ReplyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4,3 1,6 4,9" />
+      <path d="M1 6h7a4 4 0 0 1 4 4v1" />
     </svg>
   );
 }

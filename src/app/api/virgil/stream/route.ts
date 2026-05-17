@@ -18,6 +18,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth/options";
 import { buildTrustContext } from "@/lib/auth/trust-context";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
 import { ACCESS_DENIED_MESSAGE, enforceAddressRules } from "@/lib/virgil/constitution";
 import { VERONICA_ACCESS_DENIED } from "@/lib/veronica/constitution";
 import { buildSystemPrompt } from "@/lib/virgil/system-prompt";
@@ -38,6 +39,7 @@ export const runtime = "nodejs";
 const Body = z.object({
   input: z.string().min(1).max(8000),
   taskClass: z.string().optional(),
+  modelOverride: z.string().optional(), // e.g. "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"
 });
 
 export async function POST(req: NextRequest) {
@@ -58,6 +60,12 @@ export async function POST(req: NextRequest) {
   const fp = req.headers.get("x-virgil-device") ?? undefined;
 
   const trust = await buildTrustContext({ session, ip, userAgent, trustedDeviceFingerprint: fp });
+
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  if (trust.userId) {
+    const limited = checkRateLimit(trust.userId, "stream", trust.isOwner ? 60 : 20);
+    if (limited) return limited;
+  }
 
   // ── Security gates (mirror pipeline.ts non-streaming checks) ─────────────
   if (trust.lockedDown || trust.denied) return deny(accessDenied);
@@ -98,6 +106,16 @@ export async function POST(req: NextRequest) {
     combinedSensitivity,
     cloudAllowedFinal,
   );
+
+  // Apply model override if provided (owner only, non-local-only mode)
+  if (parsed.modelOverride && trust.isOwner && process.env.VIRGIL_LOCAL_ONLY !== "true") {
+    const allowed = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "claude-3-haiku"];
+    if (allowed.includes(parsed.modelOverride)) {
+      const provider = parsed.modelOverride.startsWith("claude") ? "anthropic" : "openai";
+      routeFinal.spec = { provider, model: parsed.modelOverride };
+      routeFinal.reason = `manual override: ${parsed.modelOverride}`;
+    }
+  }
 
   // ── Profile context ───────────────────────────────────────────────────────
   let profileContextText = "";
