@@ -90,9 +90,12 @@ export default function CommandPage() {
   const [proposals, setProposals]     = useState<MemoryProposal[]>([]);
   const [proposing, setProposing]     = useState(false);
   const [savingIds, setSavingIds]     = useState<Set<string>>(new Set());
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [speakingId, setSpeakingId]   = useState<string | null>(null);
 
-  const bottomRef  = useRef<HTMLDivElement>(null);
+  const bottomRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const audioRef    = useRef<HTMLAudioElement | null>(null);
 
   // ── Load conversation list ────────────────────────────────────────────────
 
@@ -271,6 +274,41 @@ export default function CommandPage() {
     setProposals((prev) => prev.filter((p) => p.id !== id));
   }
 
+  // ── Voice ─────────────────────────────────────────────────────────────────
+
+  async function speakMessage(msg: Message) {
+    // Stop any currently playing audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    // If tapping the already-playing message, just stop
+    if (speakingId === msg.id) {
+      setSpeakingId(null);
+      return;
+    }
+
+    setSpeakingId(msg.id);
+    try {
+      const res = await fetch("/api/virgil/speak", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: msg.content, companion }),
+      });
+      if (!res.ok) { setSpeakingId(null); return; }
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setSpeakingId(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setSpeakingId(null); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch {
+      setSpeakingId(null);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -330,24 +368,41 @@ export default function CommandPage() {
             </button>
             <span className="font-serif text-lg tracking-wide text-bone-50">{cfg.name}</span>
             <span className="text-[10px] uppercase tracking-[0.28em] text-bone-400">{cfg.subtitle}</span>
-            {convId && (
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={proposeMemories}
-                  disabled={proposing || messages.length < 2}
-                  className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors disabled:opacity-40"
-                  title="Extract memorable facts from this conversation"
-                >
-                  {proposing ? "Extracting…" : "⟳ Extract memories"}
-                </button>
-                <button
-                  onClick={startNewConversation}
-                  className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors"
-                >
-                  + {cfg.newConvLabel}
-                </button>
-              </div>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+              {/* Voice toggle */}
+              <button
+                onClick={() => {
+                  if (voiceEnabled && audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current = null;
+                    setSpeakingId(null);
+                  }
+                  setVoiceEnabled((v) => !v);
+                }}
+                className={`rounded p-1.5 text-bone-400 transition-colors hover:bg-ink-800 ${voiceEnabled ? "text-signal-green" : ""}`}
+                title={voiceEnabled ? "Voice on — click to disable" : "Enable voice"}
+              >
+                <SpeakerIcon active={voiceEnabled} />
+              </button>
+              {convId && (
+                <>
+                  <button
+                    onClick={proposeMemories}
+                    disabled={proposing || messages.length < 2}
+                    className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors disabled:opacity-40"
+                    title="Extract memorable facts from this conversation"
+                  >
+                    {proposing ? "Extracting…" : "⟳ Extract memories"}
+                  </button>
+                  <button
+                    onClick={startNewConversation}
+                    className="rounded bg-ink-800 px-2.5 py-1 text-[10px] text-bone-300 hover:bg-ink-700 transition-colors"
+                  >
+                    + {cfg.newConvLabel}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -370,6 +425,8 @@ export default function CommandPage() {
                   setFeedbackId={setFeedbackId}
                   setFeedbackNote={setFeedbackNote}
                   onFeedback={submitFeedback}
+                  onSpeak={voiceEnabled ? speakMessage : undefined}
+                  isSpeaking={speakingId === msg.id}
                 />
               ))}
               {busy && (
@@ -516,6 +573,7 @@ function ConvSidebar({
 
 function MessageBubble({
   msg, cfg, feedbackId, feedbackNote, setFeedbackId, setFeedbackNote, onFeedback,
+  onSpeak, isSpeaking,
 }: {
   msg: Message;
   cfg: CompanionConfig;
@@ -524,6 +582,8 @@ function MessageBubble({
   setFeedbackId: (id: string | null) => void;
   setFeedbackNote: (v: string) => void;
   onFeedback: (msg: Message, vote: "UP" | "DOWN", note?: string) => void;
+  onSpeak?: (msg: Message) => void;
+  isSpeaking?: boolean;
 }) {
   if (msg.role === "user") {
     return (
@@ -546,7 +606,7 @@ function MessageBubble({
         <div className="mb-1 text-[10px] uppercase tracking-wider text-bone-400">{cfg.assistantBadge(msg.meta)}</div>
         <p className="text-sm leading-relaxed text-bone-50 whitespace-pre-wrap">{msg.content}</p>
 
-        {/* Feedback controls */}
+        {/* Feedback + voice controls */}
         <div className="mt-2 flex items-center gap-1.5">
           <button
             onClick={() => onFeedback(msg, "UP")}
@@ -576,6 +636,19 @@ function MessageBubble({
           >
             <ThumbDown />
           </button>
+          {onSpeak && (
+            <button
+              onClick={() => onSpeak(msg)}
+              className={`rounded p-1 transition-colors ${
+                isSpeaking
+                  ? "text-signal-green"
+                  : "text-bone-600 opacity-0 group-hover:opacity-100 hover:text-bone-200"
+              }`}
+              title={isSpeaking ? "Stop" : "Read aloud"}
+            >
+              <SpeakerIcon active={!!isSpeaking} />
+            </button>
+          )}
           {msg.meta?.usedModel && (
             <span className="ml-1 text-[9px] text-bone-600 opacity-0 group-hover:opacity-100 transition-opacity">
               {msg.meta.usedModel}
@@ -613,8 +686,7 @@ function MessageBubble({
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
-function ThumbUp() {
-  return (
+function ThumbUp() {  return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 6.5 6.5 1.5a1 1 0 0 1 1 0V5h3a1 1 0 0 1 1 1l-.8 4.5a1 1 0 0 1-1 .8H4V6.5Z" />
       <line x1="4" y1="6.5" x2="2" y2="6.5" /><line x1="2" y1="6.5" x2="2" y2="11.3" /><line x1="2" y1="11.3" x2="4" y2="11.3" />
@@ -627,6 +699,16 @@ function ThumbDown() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M10 7.5 7.5 12.5a1 1 0 0 1-1 0V9H3.5a1 1 0 0 1-1-1l.8-4.5A1 1 0 0 1 4.3 2.7H10V7.5Z" />
       <line x1="10" y1="7.5" x2="12" y2="7.5" /><line x1="12" y1="7.5" x2="12" y2="2.7" /><line x1="12" y1="2.7" x2="10" y2="2.7" />
+    </svg>
+  );
+}
+
+function SpeakerIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 5h2.5L8 2v10L4.5 9H2V5Z" />
+      <path d="M10 4.5a3.5 3.5 0 0 1 0 5" />
+      {active && <path d="M11.5 2.5a6 6 0 0 1 0 9" />}
     </svg>
   );
 }
